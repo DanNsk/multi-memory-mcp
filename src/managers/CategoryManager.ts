@@ -29,6 +29,7 @@ import { SQLiteStorage } from '../storage/SQLiteStorage.js';
 
 export class CategoryManager {
   private storageCache: Map<string, StorageAdapter> = new Map();
+  private pending: Map<string, Promise<StorageAdapter>> = new Map();
 
   constructor(private baseDir: string) {}
 
@@ -37,14 +38,14 @@ export class CategoryManager {
       throw new Error('Category name cannot be empty');
     }
 
+    if (category.startsWith('.') || category.startsWith('..')) {
+      throw new Error('Category name cannot start with dots');
+    }
+
     if (!/^[a-z0-9-_]+$/.test(category)) {
       throw new Error(
         'Category name must contain only lowercase letters, numbers, hyphens, and underscores'
       );
-    }
-
-    if (category.startsWith('.') || category.startsWith('..')) {
-      throw new Error('Category name cannot start with dots');
     }
   }
 
@@ -63,14 +64,24 @@ export class CategoryManager {
       return this.storageCache.get(category)!;
     }
 
-    const categoryPath = this.getCategoryPath(category);
-    await fs.mkdir(categoryPath, { recursive: true });
+    if (this.pending.has(category)) {
+      return this.pending.get(category)!;
+    }
 
-    const dbPath = this.getDatabasePath(category);
-    const storage = new SQLiteStorage(dbPath);
+    const promise = (async () => {
+      const categoryPath = this.getCategoryPath(category);
+      await fs.mkdir(categoryPath, { recursive: true });
 
-    this.storageCache.set(category, storage);
-    return storage;
+      const dbPath = this.getDatabasePath(category);
+      const storage = new SQLiteStorage(dbPath);
+
+      this.storageCache.set(category, storage);
+      this.pending.delete(category);
+      return storage;
+    })();
+
+    this.pending.set(category, promise);
+    return promise;
   }
 
   async listCategories(): Promise<string[]> {

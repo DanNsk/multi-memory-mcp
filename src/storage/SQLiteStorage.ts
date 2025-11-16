@@ -280,17 +280,17 @@ export class SQLiteStorage implements StorageAdapter {
 
     const entityNames = new Set(entities.map(e => e.name));
 
-    const relationRows = this.db
-      .prepare(
-        `SELECT from_entity, to_entity, relation_type
-         FROM relations
-         WHERE from_entity IN (SELECT name FROM entities WHERE id IN (${Array.from(entityIds).join(',')}))
-            OR to_entity IN (SELECT name FROM entities WHERE id IN (${Array.from(entityIds).join(',')}))`
-      )
-      .all() as Array<{ from_entity: string; to_entity: string; relation_type: string }>;
+    if (entityIds.size > 0) {
+      const relationRows = this.db
+        .prepare(
+          `SELECT from_entity, to_entity, relation_type
+           FROM relations
+           WHERE from_entity IN (SELECT name FROM entities WHERE id IN (${Array.from(entityIds).join(',')}))
+              OR to_entity IN (SELECT name FROM entities WHERE id IN (${Array.from(entityIds).join(',')}))`
+        )
+        .all() as Array<{ from_entity: string; to_entity: string; relation_type: string }>;
 
-    for (const row of relationRows) {
-      if (entityNames.has(row.from_entity) && entityNames.has(row.to_entity)) {
+      for (const row of relationRows) {
         relations.push({
           from: row.from_entity,
           to: row.to_entity,
