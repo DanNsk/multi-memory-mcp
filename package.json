@@ -14,8 +14,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && shx chmod +x dist/*.js",
-    "prepare": "npm run build",
+    "build": "bun run build:tsc && shx chmod +x dist/*.js",
+    "build:tsc": "tsc",
+    "prepare": "bun run build",
     "watch": "tsc --watch",
     "test": "vitest run --coverage"
   },

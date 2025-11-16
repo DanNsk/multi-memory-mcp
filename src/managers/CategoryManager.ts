@@ -53,12 +53,8 @@ export class CategoryManager {
     }
   }
 
-  private getCategoryPath(category: string): string {
-    return path.join(this.baseDir, category);
-  }
-
   private getDatabasePath(category: string): string {
-    return path.join(this.getCategoryPath(category), `${category}.db`);
+    return path.join(this.baseDir, `${category}.db`);
   }
 
   async getStorageAdapter(category: string): Promise<StorageAdapter> {
@@ -74,8 +70,7 @@ export class CategoryManager {
     }
 
     const promise = (async () => {
-      const categoryPath = this.getCategoryPath(category);
-      await fs.mkdir(categoryPath, { recursive: true });
+      await fs.mkdir(this.baseDir, { recursive: true });
 
       const dbPath = this.getDatabasePath(category);
       const storage = new SQLiteStorage(dbPath);
@@ -116,7 +111,9 @@ export class CategoryManager {
   async listCategories(): Promise<string[]> {
     try {
       const entries = await fs.readdir(this.baseDir, { withFileTypes: true });
-      return entries.filter(entry => entry.isDirectory()).map(entry => entry.name);
+      return entries
+        .filter(entry => entry.isFile() && entry.name.endsWith('.db'))
+        .map(entry => entry.name.slice(0, -3)); // Remove .db extension
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return [];
@@ -138,9 +135,12 @@ export class CategoryManager {
       }
     }
 
-    const categoryPath = this.getCategoryPath(category);
+    const dbPath = this.getDatabasePath(category);
     try {
-      await fs.rm(categoryPath, { recursive: true, force: true });
+      // Delete main database file and WAL files
+      await fs.rm(dbPath, { force: true });
+      await fs.rm(`${dbPath}-shm`, { force: true });
+      await fs.rm(`${dbPath}-wal`, { force: true });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
@@ -150,10 +150,10 @@ export class CategoryManager {
 
   async categoryExists(category: string): Promise<boolean> {
     this.validateCategoryName(category);
-    const categoryPath = this.getCategoryPath(category);
+    const dbPath = this.getDatabasePath(category);
     try {
-      const stats = await fs.stat(categoryPath);
-      return stats.isDirectory();
+      const stats = await fs.stat(dbPath);
+      return stats.isFile();
     } catch {
       return false;
     }

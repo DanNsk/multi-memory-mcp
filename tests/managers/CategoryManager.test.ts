@@ -94,23 +94,22 @@ describe('CategoryManager', () => {
       const storage = await categoryManager.getStorageAdapter('work');
       expect(storage).toBeDefined();
 
-      const categoryPath = path.join(TEST_BASE_DIR, 'work');
-      const stats = await fs.stat(categoryPath);
-      expect(stats.isDirectory()).toBe(true);
+      const dbPath = path.join(TEST_BASE_DIR, 'work.db');
+      const stats = await fs.stat(dbPath);
+      expect(stats.isFile()).toBe(true);
     });
 
-    it('should create category directory if it does not exist', async () => {
+    it('should create base directory if it does not exist', async () => {
       await categoryManager.getStorageAdapter('newcategory');
 
-      const categoryPath = path.join(TEST_BASE_DIR, 'newcategory');
-      const stats = await fs.stat(categoryPath);
-      expect(stats.isDirectory()).toBe(true);
+      const baseStats = await fs.stat(TEST_BASE_DIR);
+      expect(baseStats.isDirectory()).toBe(true);
     });
 
-    it('should create database file in category directory', async () => {
+    it('should create database file in base directory', async () => {
       await categoryManager.getStorageAdapter('testcat');
 
-      const dbPath = path.join(TEST_BASE_DIR, 'testcat', 'testcat.db');
+      const dbPath = path.join(TEST_BASE_DIR, 'testcat.db');
       const stats = await fs.stat(dbPath);
       expect(stats.isFile()).toBe(true);
     });
@@ -134,13 +133,13 @@ describe('CategoryManager', () => {
       await categoryManager.getStorageAdapter('personal');
       await categoryManager.getStorageAdapter('project-alpha');
 
-      const workPath = path.join(TEST_BASE_DIR, 'work');
-      const personalPath = path.join(TEST_BASE_DIR, 'personal');
-      const projectPath = path.join(TEST_BASE_DIR, 'project-alpha');
+      const workPath = path.join(TEST_BASE_DIR, 'work.db');
+      const personalPath = path.join(TEST_BASE_DIR, 'personal.db');
+      const projectPath = path.join(TEST_BASE_DIR, 'project-alpha.db');
 
-      expect((await fs.stat(workPath)).isDirectory()).toBe(true);
-      expect((await fs.stat(personalPath)).isDirectory()).toBe(true);
-      expect((await fs.stat(projectPath)).isDirectory()).toBe(true);
+      expect((await fs.stat(workPath)).isFile()).toBe(true);
+      expect((await fs.stat(personalPath)).isFile()).toBe(true);
+      expect((await fs.stat(projectPath)).isFile()).toBe(true);
     });
 
     it('should reject invalid category names when getting adapter', async () => {
@@ -172,9 +171,11 @@ describe('CategoryManager', () => {
       expect(categories.sort()).toEqual(['personal', 'project-alpha', 'work']);
     });
 
-    it('should only list directories', async () => {
+    it('should only list .db files', async () => {
       await categoryManager.getStorageAdapter('category1');
+      await fs.mkdir(TEST_BASE_DIR, { recursive: true });
       await fs.writeFile(path.join(TEST_BASE_DIR, 'somefile.txt'), 'content');
+      await fs.mkdir(path.join(TEST_BASE_DIR, 'somedir'));
 
       const categories = await categoryManager.listCategories();
       expect(categories).toEqual(['category1']);
@@ -200,11 +201,11 @@ describe('CategoryManager', () => {
       expect(exists).toBe(true);
     });
 
-    it('should return false for file instead of directory', async () => {
+    it('should return false for directory instead of .db file', async () => {
       await fs.mkdir(TEST_BASE_DIR, { recursive: true });
-      await fs.writeFile(path.join(TEST_BASE_DIR, 'notdir'), 'content');
+      await fs.mkdir(path.join(TEST_BASE_DIR, 'notfile'));
 
-      const exists = await categoryManager.categoryExists('notdir');
+      const exists = await categoryManager.categoryExists('notfile');
       expect(exists).toBe(false);
     });
 
@@ -215,15 +216,15 @@ describe('CategoryManager', () => {
   });
 
   describe('Delete Category', () => {
-    it('should delete category directory and database', async () => {
+    it('should delete category database file', async () => {
       await categoryManager.getStorageAdapter('todelete');
-      const categoryPath = path.join(TEST_BASE_DIR, 'todelete');
+      const dbPath = path.join(TEST_BASE_DIR, 'todelete.db');
 
-      expect((await fs.stat(categoryPath)).isDirectory()).toBe(true);
+      expect((await fs.stat(dbPath)).isFile()).toBe(true);
 
       await categoryManager.deleteCategory('todelete');
 
-      await expect(fs.stat(categoryPath)).rejects.toThrow();
+      await expect(fs.stat(dbPath)).rejects.toThrow();
     });
 
     it('should remove category from cache after deletion', async () => {
@@ -263,8 +264,8 @@ describe('CategoryManager', () => {
 
       await categoryManager.deleteCategory('withdata');
 
-      const categoryPath = path.join(TEST_BASE_DIR, 'withdata');
-      await expect(fs.stat(categoryPath)).rejects.toThrow();
+      const dbPath = path.join(TEST_BASE_DIR, 'withdata.db');
+      await expect(fs.stat(dbPath)).rejects.toThrow();
     });
   });
 
@@ -365,16 +366,14 @@ describe('CategoryManager', () => {
   });
 
   describe('File System Integration', () => {
-    it('should create nested directory structure', async () => {
+    it('should create flat file structure', async () => {
       await categoryManager.getStorageAdapter('category');
 
-      const categoryPath = path.join(TEST_BASE_DIR, 'category');
-      const dbPath = path.join(categoryPath, 'category.db');
-
-      const categoryStats = await fs.stat(categoryPath);
+      const baseStats = await fs.stat(TEST_BASE_DIR);
+      const dbPath = path.join(TEST_BASE_DIR, 'category.db');
       const dbStats = await fs.stat(dbPath);
 
-      expect(categoryStats.isDirectory()).toBe(true);
+      expect(baseStats.isDirectory()).toBe(true);
       expect(dbStats.isFile()).toBe(true);
     });
 
@@ -384,9 +383,11 @@ describe('CategoryManager', () => {
 
       await manager.getStorageAdapter('test');
 
-      const testPath = path.join(deepPath, 'test');
-      const stats = await fs.stat(testPath);
-      expect(stats.isDirectory()).toBe(true);
+      const baseStats = await fs.stat(deepPath);
+      const dbPath = path.join(deepPath, 'test.db');
+      const dbStats = await fs.stat(dbPath);
+      expect(baseStats.isDirectory()).toBe(true);
+      expect(dbStats.isFile()).toBe(true);
 
       manager.closeAll();
     });

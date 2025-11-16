@@ -62,16 +62,16 @@ describe('KnowledgeGraphManager', () => {
       expect(graph.entities[0].name).toBe('DefaultEntity');
     });
 
-    it('should create default category directory', async () => {
+    it('should create default category database file', async () => {
       await kgManager.createEntities([{
         name: 'Test',
         entityType: 'test',
         observations: []
       }]);
 
-      const defaultPath = path.join(TEST_BASE_DIR, 'default');
+      const defaultPath = path.join(TEST_BASE_DIR, 'default.db');
       const stats = await fs.stat(defaultPath);
-      expect(stats.isDirectory()).toBe(true);
+      expect(stats.isFile()).toBe(true);
     });
 
     it('should use custom default category', async () => {
@@ -83,9 +83,9 @@ describe('KnowledgeGraphManager', () => {
         observations: []
       }]);
 
-      const customPath = path.join(TEST_BASE_DIR, 'custom');
+      const customPath = path.join(TEST_BASE_DIR, 'custom.db');
       const stats = await fs.stat(customPath);
-      expect(stats.isDirectory()).toBe(true);
+      expect(stats.isFile()).toBe(true);
     });
   });
 

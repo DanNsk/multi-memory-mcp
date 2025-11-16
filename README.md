@@ -17,8 +17,8 @@ A multi-category knowledge graph memory server using SQLite for persistent stora
 ```bash
 git clone https://github.com/DanNsk/multi-memory-mcp
 cd multi-memory-mcp
-npm install
-npm run build
+bun install
+bun run build
 ```
 
 ### Configuration
@@ -42,7 +42,7 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 
 ### Environment Variables
 
-- `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `./memory`)
+- `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `./.memory`)
 - `DEFAULT_CATEGORY`: Default category when none specified (default: `"default"`)
 
 ## Core Concepts
@@ -58,10 +58,10 @@ Organize memories into separate isolated databases. Each category has its own SQ
 
 **Directory structure:**
 ```
-memory/
-├── work/work.db
-├── personal/personal.db
-└── project-alpha/project-alpha.db
+.memory/
+├── work.db
+├── personal.db
+└── project-alpha.db
 ```
 
 ### Entities
@@ -250,14 +250,14 @@ Keep contexts isolated:
 ### Build
 
 ```bash
-npm run build      # Compile TypeScript
-npm run watch      # Watch mode
+bun run build      # Compile TypeScript
+bun run watch      # Watch mode
 ```
 
 ### Testing
 
 ```bash
-npm test           # Run all tests (134 tests)
+bun test           # Run all tests (134 tests)
 ```
 
 Coverage: SQLiteStorage 98%, CategoryManager 87%, KnowledgeGraphManager 100%

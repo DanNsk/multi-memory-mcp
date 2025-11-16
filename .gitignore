@@ -9,6 +9,7 @@ dist/
 
 # Memory databases
 memory/
+.memory/
 *.db
 *.db-shm
 *.db-wal
