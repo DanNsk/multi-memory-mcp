@@ -25,6 +25,8 @@ SOFTWARE.
 import Database from 'better-sqlite3';
 import type { Entity, Relation, KnowledgeGraph, StorageAdapter } from '../types/graph.js';
 
+const CURRENT_SCHEMA_VERSION = 1;
+
 export class SQLiteStorage implements StorageAdapter {
   private db: Database.Database;
 
@@ -36,6 +38,11 @@ export class SQLiteStorage implements StorageAdapter {
 
   private initializeSchema(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER DEFAULT (unixepoch())
+      );
+
       CREATE TABLE IF NOT EXISTS entities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL,
@@ -69,6 +76,24 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity);
       CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity);
     `);
+
+    this.ensureSchemaVersion();
+  }
+
+  private ensureSchemaVersion(): void {
+    const versionRow = this.db
+      .prepare('SELECT version FROM schema_version LIMIT 1')
+      .get() as { version: number } | undefined;
+
+    if (!versionRow) {
+      this.db
+        .prepare('INSERT INTO schema_version (version) VALUES (?)')
+        .run(CURRENT_SCHEMA_VERSION);
+    } else if (versionRow.version !== CURRENT_SCHEMA_VERSION) {
+      throw new Error(
+        `Database schema version mismatch. Expected ${CURRENT_SCHEMA_VERSION}, found ${versionRow.version}. Migration required.`
+      );
+    }
   }
 
   async loadGraph(): Promise<KnowledgeGraph> {
@@ -280,15 +305,18 @@ export class SQLiteStorage implements StorageAdapter {
 
     const entityNames = new Set(entities.map(e => e.name));
 
-    if (entityIds.size > 0) {
+    if (entityNames.size > 0) {
+      const namePlaceholders = Array.from(entityNames).map(() => '?').join(',');
+      const nameArray = Array.from(entityNames);
+
       const relationRows = this.db
         .prepare(
           `SELECT from_entity, to_entity, relation_type
            FROM relations
-           WHERE from_entity IN (SELECT name FROM entities WHERE id IN (${Array.from(entityIds).join(',')}))
-              OR to_entity IN (SELECT name FROM entities WHERE id IN (${Array.from(entityIds).join(',')}))`
+           WHERE from_entity IN (${namePlaceholders})
+              OR to_entity IN (${namePlaceholders})`
         )
-        .all() as Array<{ from_entity: string; to_entity: string; relation_type: string }>;
+        .all(...nameArray, ...nameArray) as Array<{ from_entity: string; to_entity: string; relation_type: string }>;
 
       for (const row of relationRows) {
         relations.push({

@@ -30,8 +30,12 @@ import { SQLiteStorage } from '../storage/SQLiteStorage.js';
 export class CategoryManager {
   private storageCache: Map<string, StorageAdapter> = new Map();
   private pending: Map<string, Promise<StorageAdapter>> = new Map();
+  private lruOrder: string[] = [];
+  private readonly maxConnections: number;
 
-  constructor(private baseDir: string) {}
+  constructor(private baseDir: string, maxConnections: number = 50) {
+    this.maxConnections = maxConnections;
+  }
 
   validateCategoryName(category: string): void {
     if (!category || category.trim() === '') {
@@ -61,6 +65,7 @@ export class CategoryManager {
     this.validateCategoryName(category);
 
     if (this.storageCache.has(category)) {
+      this.updateLRU(category);
       return this.storageCache.get(category)!;
     }
 
@@ -75,13 +80,37 @@ export class CategoryManager {
       const dbPath = this.getDatabasePath(category);
       const storage = new SQLiteStorage(dbPath);
 
+      this.evictIfNeeded();
+
       this.storageCache.set(category, storage);
+      this.lruOrder.push(category);
       this.pending.delete(category);
       return storage;
     })();
 
     this.pending.set(category, promise);
     return promise;
+  }
+
+  private updateLRU(category: string): void {
+    const index = this.lruOrder.indexOf(category);
+    if (index > -1) {
+      this.lruOrder.splice(index, 1);
+    }
+    this.lruOrder.push(category);
+  }
+
+  private evictIfNeeded(): void {
+    if (this.storageCache.size >= this.maxConnections) {
+      const oldest = this.lruOrder.shift();
+      if (oldest) {
+        const storage = this.storageCache.get(oldest);
+        if (storage) {
+          storage.close();
+          this.storageCache.delete(oldest);
+        }
+      }
+    }
   }
 
   async listCategories(): Promise<string[]> {
@@ -103,6 +132,10 @@ export class CategoryManager {
     if (storage) {
       storage.close();
       this.storageCache.delete(category);
+      const index = this.lruOrder.indexOf(category);
+      if (index > -1) {
+        this.lruOrder.splice(index, 1);
+      }
     }
 
     const categoryPath = this.getCategoryPath(category);
@@ -131,5 +164,6 @@ export class CategoryManager {
       storage.close();
     }
     this.storageCache.clear();
+    this.lruOrder = [];
   }
 }
