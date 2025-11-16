@@ -1,0 +1,35 @@
+{
+  "name": "multi-memory-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for multi-category memory storage using SQLite and knowledge graph (based on @modelcontextprotocol/server-memory)",
+  "license": "MIT",
+  "author": "DanNsk",
+  "homepage": "https://github.com/DanNsk/multi-memory-mcp",
+  "bugs": "https://github.com/DanNsk/multi-memory-mcp/issues",
+  "type": "module",
+  "bin": {
+    "multi-memory-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun run build:tsc && shx chmod +x dist/*.js",
+    "build:tsc": "tsc",
+    "prepare": "bun run build",
+    "watch": "tsc --watch",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.1",
+    "better-sqlite3": "^11.7.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22",
+    "@vitest/coverage-v8": "^2.1.8",
+    "shx": "^0.3.4",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.8"
+  }
+}
