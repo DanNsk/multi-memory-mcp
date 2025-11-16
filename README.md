@@ -1,243 +1,36 @@
 # Multi-Memory MCP Server
 
-A multi-category knowledge graph memory server using SQLite for persistent storage. This lets Claude remember information across chats with isolated memory contexts for different purposes.
+A multi-category knowledge graph memory server using SQLite for persistent storage. Organize memories into isolated contexts for different purposes (work, personal, projects, etc.).
 
-**Based on** `@modelcontextprotocol/server-memory` **with the following enhancements:**
-- SQLite database storage with proper indexing
-- Multi-category support (work, personal, projects, etc.)
-- Isolated memory contexts per category
-- Faster search and queries
-- ACID transactions for data integrity
+**Based on** `@modelcontextprotocol/server-memory` **with enhancements:**
+- SQLite database storage with proper indexing and transactions
+- Multi-category support with isolated memory contexts
+- LRU connection cache (prevents memory leaks)
+- Schema versioning system
+- SQL injection protection
+- Full test coverage (134 tests)
 
-## Core Concepts
+## Quick Start
 
-### Categories
+### Installation
 
-Categories allow you to organize memories into separate contexts. Each category has its own isolated database.
-
-**Common categories:**
-- `work` - Work-related memories
-- `personal` - Personal memories
-- `project-alpha` - Project-specific knowledge
-- `dependencies` - Code dependency graphs
-- Any custom category name (lowercase, alphanumeric, hyphens, underscores)
-
-**Directory structure:**
-```
-memory/
-├── work/
-│   └── work.db
-├── personal/
-│   └── personal.db
-└── project-alpha/
-    └── project-alpha.db
+```bash
+git clone https://github.com/DanNsk/multi-memory-mcp
+cd multi-memory-mcp
+npm install
+npm run build
 ```
 
-### Entities
+### Configuration
 
-Entities are the primary nodes in the knowledge graph. Each entity has:
-- A unique name (identifier)
-- An entity type (e.g., "person", "organization", "event", "module", "class")
-- A list of observations
-
-Example:
-```json
-{
-  "name": "UserService",
-  "entityType": "module",
-  "observations": ["Handles user authentication", "Located in src/services/"]
-}
-```
-
-### Relations
-
-Relations define directed connections between entities. They are always stored in active voice and describe how entities interact or relate to each other.
-
-Example:
-```json
-{
-  "from": "APIController",
-  "to": "UserService",
-  "relationType": "depends_on"
-}
-```
-
-### Observations
-
-Observations are discrete pieces of information about an entity. They are:
-- Stored as strings
-- Attached to specific entities
-- Can be added or removed independently
-- Should be atomic (one fact per observation)
-
-Example:
-```json
-{
-  "entityName": "UserService",
-  "observations": [
-    "Exports createUser function",
-    "Uses bcrypt for password hashing",
-    "Connects to PostgreSQL database"
-  ]
-}
-```
-
-## API
-
-### Tools
-
-All tools support an optional `category` parameter. If not provided, the default category is used.
-
-#### **create_entities**
-Create multiple new entities in the knowledge graph
-
-**Input:**
-- `category` (optional, string): Memory category (defaults to "default")
-- `entities` (array): Array of entity objects
-  - `name` (string): Entity identifier
-  - `entityType` (string): Type classification
-  - `observations` (string[]): Associated observations
-
-Ignores entities with existing names.
-
-**Example:**
-```json
-{
-  "category": "work",
-  "entities": [
-    {
-      "name": "DatabaseClient",
-      "entityType": "module",
-      "observations": ["PostgreSQL client wrapper", "Handles connection pooling"]
-    }
-  ]
-}
-```
-
-#### **create_relations**
-Create multiple new relations between entities
-
-**Input:**
-- `category` (optional, string): Memory category
-- `relations` (array): Array of relation objects
-  - `from` (string): Source entity name
-  - `to` (string): Target entity name
-  - `relationType` (string): Relationship type in active voice
-
-Skips duplicate relations.
-
-**Example:**
-```json
-{
-  "category": "work",
-  "relations": [
-    {
-      "from": "UserService",
-      "to": "DatabaseClient",
-      "relationType": "depends_on"
-    }
-  ]
-}
-```
-
-#### **add_observations**
-Add new observations to existing entities
-
-**Input:**
-- `category` (optional, string): Memory category
-- `observations` (array): Array of observation objects
-  - `entityName` (string): Target entity
-  - `contents` (string[]): New observations to add
-
-Returns added observations per entity. Fails if entity doesn't exist.
-
-#### **delete_entities**
-Remove entities and their relations
-
-**Input:**
-- `category` (optional, string): Memory category
-- `entityNames` (string[]): Array of entity names to delete
-
-Cascading deletion of associated relations. Silent if entity doesn't exist.
-
-#### **delete_observations**
-Remove specific observations from entities
-
-**Input:**
-- `category` (optional, string): Memory category
-- `deletions` (array): Array of deletion objects
-  - `entityName` (string): Target entity
-  - `observations` (string[]): Observations to remove
-
-Silent if observation doesn't exist.
-
-#### **delete_relations**
-Remove specific relations from the graph
-
-**Input:**
-- `category` (optional, string): Memory category
-- `relations` (array): Array of relation objects to delete
-
-Silent if relation doesn't exist.
-
-#### **read_graph**
-Read the entire knowledge graph from a category
-
-**Input:**
-- `category` (optional, string): Memory category
-
-Returns complete graph structure with all entities and relations for the specified category.
-
-#### **search_nodes**
-Search for nodes based on query
-
-**Input:**
-- `category` (optional, string): Memory category
-- `query` (string): Search query
-
-Searches across entity names, entity types, and observation content. Returns matching entities and their relations.
-
-#### **open_nodes**
-Retrieve specific nodes by name
-
-**Input:**
-- `category` (optional, string): Memory category
-- `names` (string[]): Entity names to retrieve
-
-Returns requested entities and relations between them. Silently skips non-existent nodes.
-
-#### **list_categories**
-List all available memory categories
-
-**Input:** None
-
-Returns array of category names.
-
-#### **delete_category**
-Delete an entire category and all its contents
-
-**Input:**
-- `category` (string, required): Category to delete
-
-Permanently removes the category directory and database.
-
-## Configuration
-
-### Environment Variables
-
-- `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `./memory` relative to server)
-- `DEFAULT_CATEGORY`: Default category name when not specified (default: `"default"`)
-
-### Usage with Claude Desktop
-
-#### NPX Installation
+Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
     "multi-memory": {
-      "command": "npx",
-      "args": ["-y", "multi-memory-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/multi-memory-mcp/dist/index.js"],
       "env": {
         "MEMORY_BASE_DIR": "/Users/yourname/.memory",
         "DEFAULT_CATEGORY": "default"
@@ -247,130 +40,287 @@ Permanently removes the category directory and database.
 }
 ```
 
-#### Local Development
+### Environment Variables
+
+- `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `./memory`)
+- `DEFAULT_CATEGORY`: Default category when none specified (default: `"default"`)
+
+## Core Concepts
+
+### Categories
+
+Organize memories into separate isolated databases. Each category has its own SQLite database file.
+
+**Category naming rules:**
+- Lowercase letters, numbers, hyphens, underscores only
+- Cannot start with dots
+- Examples: `work`, `personal`, `project-alpha`, `dependencies`
+
+**Directory structure:**
+```
+memory/
+├── work/work.db
+├── personal/personal.db
+└── project-alpha/project-alpha.db
+```
+
+### Entities
+
+Nodes in the knowledge graph with:
+- Unique name (identifier)
+- Type (e.g., "module", "class", "person", "project")
+- List of observations
 
 ```json
 {
-  "mcpServers": {
-    "multi-memory": {
-      "command": "node",
-      "args": ["/path/to/multi-memory-mcp/dist/index.js"],
-      "env": {
-        "MEMORY_BASE_DIR": "/Users/yourname/.memory",
-        "DEFAULT_CATEGORY": "work"
-      }
-    }
-  }
+  "name": "AuthService",
+  "entityType": "module",
+  "observations": ["Handles authentication", "Located in src/auth/"]
 }
 ```
 
-## Building and Development
+### Relations
 
-### Install Dependencies
-
-```bash
-npm install
-```
-
-### Build
-
-```bash
-npm run build
-```
-
-### Watch Mode
-
-```bash
-npm run watch
-```
-
-### Run Locally
-
-```bash
-node dist/index.js
-```
-
-## Use Cases
-
-### Personal Assistant Memory
-
-Separate work and personal contexts:
+Directed connections between entities (active voice):
 
 ```json
-// Work context
+{
+  "from": "APIController",
+  "to": "AuthService",
+  "relationType": "depends_on"
+}
+```
+
+### Observations
+
+Atomic facts about entities:
+
+```json
+{
+  "entityName": "AuthService",
+  "observations": [
+    "Uses JWT tokens",
+    "Connects to user database",
+    "Implements password hashing"
+  ]
+}
+```
+
+## API Tools
+
+All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
+
+### Entity Operations
+
+**create_entities** - Create new entities
+```json
 {
   "category": "work",
-  "entities": [{
-    "name": "Alice",
-    "entityType": "colleague",
-    "observations": ["Project lead", "Prefers morning meetings"]
-  }]
-}
-
-// Personal context
-{
-  "category": "personal",
-  "entities": [{
-    "name": "Alice",
-    "entityType": "friend",
-    "observations": ["Enjoys hiking", "Birthday in June"]
-  }]
-}
-```
-
-### Code Dependency Tracking
-
-Store ASG (Abstract Semantic Graph) for different projects:
-
-```json
-{
-  "category": "project-frontend",
   "entities": [
     {
-      "name": "AuthService",
+      "name": "UserService",
       "entityType": "service",
-      "observations": ["Handles OAuth flow", "Uses JWT tokens"]
-    },
-    {
-      "name": "UserAPI",
-      "entityType": "api",
-      "observations": ["REST endpoints for user management"]
-    }
-  ],
-  "relations": [
-    {
-      "from": "UserAPI",
-      "to": "AuthService",
-      "relationType": "depends_on"
+      "observations": ["Manages user data"]
     }
   ]
 }
 ```
 
-### Project-Specific Knowledge
-
-Isolate memories per project:
-
+**delete_entities** - Remove entities and their relations
 ```json
-// Project Alpha memories
 {
-  "category": "project-alpha",
-  "entities": [...]
-}
-
-// Project Beta memories
-{
-  "category": "project-beta",
-  "entities": [...]
+  "category": "work",
+  "entityNames": ["UserService"]
 }
 ```
 
-## Storage Details
+### Relation Operations
 
-- **Database**: SQLite with WAL mode for better concurrency
-- **Schema**: Indexed tables for entities, observations, and relations
+**create_relations** - Create entity relationships
+```json
+{
+  "category": "work",
+  "relations": [
+    {
+      "from": "APIController",
+      "to": "UserService",
+      "relationType": "uses"
+    }
+  ]
+}
+```
+
+**delete_relations** - Remove specific relations
+
+### Observation Operations
+
+**add_observations** - Add facts to existing entities
+```json
+{
+  "category": "work",
+  "observations": [
+    {
+      "entityName": "UserService",
+      "contents": ["Updated to v2.0", "Added caching"]
+    }
+  ]
+}
+```
+
+**delete_observations** - Remove specific observations
+
+### Query Operations
+
+**read_graph** - Get entire graph for a category
+```json
+{
+  "category": "work"
+}
+```
+
+**search_nodes** - Search by name, type, or observation content
+```json
+{
+  "category": "work",
+  "query": "authentication"
+}
+```
+
+**open_nodes** - Get specific entities by name
+```json
+{
+  "category": "work",
+  "names": ["UserService", "AuthService"]
+}
+```
+
+### Category Management
+
+**list_categories** - Get all category names
+
+**delete_category** - Remove entire category and database
+```json
+{
+  "category": "old-project"
+}
+```
+
+## Use Cases
+
+### Code Dependency Tracking
+
+Track module dependencies per project:
+
+```json
+{
+  "category": "backend-service",
+  "entities": [
+    {"name": "AuthModule", "entityType": "module", "observations": ["Exports login, logout"]},
+    {"name": "UserModule", "entityType": "module", "observations": ["User CRUD operations"]},
+    {"name": "Database", "entityType": "library", "observations": ["PostgreSQL client"]}
+  ],
+  "relations": [
+    {"from": "AuthModule", "to": "UserModule", "relationType": "imports"},
+    {"from": "AuthModule", "to": "Database", "relationType": "uses"}
+  ]
+}
+```
+
+Query dependencies:
+```json
+{"category": "backend-service", "query": "AuthModule"}
+```
+
+### Multi-Project Organization
+
+Separate categories per project:
+- `project-frontend` - Frontend dependencies
+- `project-backend` - Backend dependencies
+- `project-mobile` - Mobile app dependencies
+
+### Work/Personal Separation
+
+Keep contexts isolated:
+- `work` - Professional contacts and projects
+- `personal` - Personal notes and relationships
+- `learning` - Study notes and resources
+
+## Development
+
+### Build
+
+```bash
+npm run build      # Compile TypeScript
+npm run watch      # Watch mode
+```
+
+### Testing
+
+```bash
+npm test           # Run all tests (134 tests)
+```
+
+Coverage: SQLiteStorage 98%, CategoryManager 87%, KnowledgeGraphManager 100%
+
+### Project Structure
+
+```
+src/
+├── index.ts                    # MCP server
+├── storage/
+│   └── SQLiteStorage.ts        # Database operations
+├── managers/
+│   ├── CategoryManager.ts      # Category lifecycle & LRU cache
+│   └── KnowledgeGraphManager.ts # Graph operations
+└── types/
+    └── graph.ts                # Type definitions
+
+tests/
+├── storage/                    # Storage layer tests
+├── managers/                   # Manager tests
+├── integration/                # End-to-end tests
+└── benchmarks/                 # Performance benchmarks
+```
+
+## Technical Details
+
+### Storage
+
+- **Database**: SQLite 3 with WAL mode
+- **Schema Version**: 1 (tracked in database)
+- **Indexes**: On entity names, types, relations
 - **Transactions**: ACID-compliant operations
-- **File Location**: Each category stored in `{MEMORY_BASE_DIR}/{category}/{category}.db`
+- **Connection Limit**: Max 50 concurrent (LRU eviction)
+
+### Security
+
+- Parameterized queries (SQL injection protection)
+- Category name validation (path traversal prevention)
+- Foreign key constraints
+- Cascading deletes
+
+### Performance
+
+- Indexed queries for fast lookups
+- WAL mode for concurrent reads
+- Connection caching with LRU eviction
+- Batch operations via transactions
+
+## Troubleshooting
+
+### Database locked error
+
+SQLite uses WAL mode which allows concurrent reads. If you get lock errors:
+- Ensure no other process is writing to the database
+- Check file permissions on the database directory
+
+### Memory growing over time
+
+CategoryManager implements LRU cache with default 50 connection limit. Oldest connections automatically closed when limit reached.
+
+### Schema version mismatch
+
+Database created with different schema version. No automatic migration implemented. Delete old database or manually migrate.
 
 ## License
 
