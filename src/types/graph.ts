@@ -22,10 +22,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+export interface Observation {
+  text: string;
+  timestamp?: string;
+  source?: string;
+}
+
 export interface Entity {
   name: string;
   entityType: string;
-  observations: string[];
+  observations: Observation[];
 }
 
 export interface Relation {
@@ -43,9 +49,9 @@ export interface StorageAdapter {
   loadGraph(): Promise<KnowledgeGraph>;
   createEntities(entities: Entity[]): Promise<Entity[]>;
   createRelations(relations: Relation[]): Promise<Relation[]>;
-  addObservations(observations: { entityName: string; contents: string[] }[]): Promise<{ entityName: string; addedObservations: string[] }[]>;
+  addObservations(observations: { entityName: string; contents: Observation[] }[]): Promise<{ entityName: string; addedObservations: Observation[] }[]>;
   deleteEntities(entityNames: string[]): Promise<void>;
-  deleteObservations(deletions: { entityName: string; observations: string[] }[]): Promise<void>;
+  deleteObservations(deletions: { entityName: string; observations: Observation[] }[]): Promise<void>;
   deleteRelations(relations: Relation[]): Promise<void>;
   searchNodes(query: string): Promise<KnowledgeGraph>;
   openNodes(names: string[]): Promise<KnowledgeGraph>;

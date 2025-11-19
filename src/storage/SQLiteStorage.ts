@@ -23,9 +23,9 @@ SOFTWARE.
 */
 
 import Database from 'better-sqlite3';
-import type { Entity, Relation, KnowledgeGraph, StorageAdapter } from '../types/graph.js';
+import type { Entity, Relation, KnowledgeGraph, StorageAdapter, Observation } from '../types/graph.js';
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 export class SQLiteStorage implements StorageAdapter {
   private db: Database.Database;
@@ -55,6 +55,8 @@ export class SQLiteStorage implements StorageAdapter {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_id INTEGER NOT NULL,
         content TEXT NOT NULL,
+        timestamp TEXT,
+        source TEXT,
         created_at INTEGER DEFAULT (unixepoch()),
         FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
       );
@@ -89,10 +91,26 @@ export class SQLiteStorage implements StorageAdapter {
       this.db
         .prepare('INSERT INTO schema_version (version) VALUES (?)')
         .run(CURRENT_SCHEMA_VERSION);
-    } else if (versionRow.version !== CURRENT_SCHEMA_VERSION) {
+    } else if (versionRow.version < CURRENT_SCHEMA_VERSION) {
+      this.migrateSchema(versionRow.version, CURRENT_SCHEMA_VERSION);
+    } else if (versionRow.version > CURRENT_SCHEMA_VERSION) {
       throw new Error(
-        `Database schema version mismatch. Expected ${CURRENT_SCHEMA_VERSION}, found ${versionRow.version}. Migration required.`
+        `Database schema version mismatch. Expected ${CURRENT_SCHEMA_VERSION}, found ${versionRow.version}. Database is newer than this version of the software.`
       );
+    }
+  }
+
+  private migrateSchema(fromVersion: number, toVersion: number): void {
+    console.log(`Migrating database schema from version ${fromVersion} to ${toVersion}`);
+
+    if (fromVersion === 1 && toVersion >= 2) {
+      // Add timestamp and source columns to observations table
+      this.db.exec(`
+        ALTER TABLE observations ADD COLUMN timestamp TEXT;
+        ALTER TABLE observations ADD COLUMN source TEXT;
+      `);
+      this.db.prepare('UPDATE schema_version SET version = ?').run(2);
+      console.log('Migration to version 2 complete: Added timestamp and source columns to observations');
     }
   }
 
@@ -108,13 +126,17 @@ export class SQLiteStorage implements StorageAdapter {
 
     for (const row of entityRows) {
       const observations = this.db
-        .prepare('SELECT content FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ content: string }>;
+        .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ content: string; timestamp: string | null; source: string | null }>;
 
       entities.push({
         name: row.name,
         entityType: row.entity_type,
-        observations: observations.map(o => o.content),
+        observations: observations.map(o => ({
+          text: o.content,
+          ...(o.timestamp && { timestamp: o.timestamp }),
+          ...(o.source && { source: o.source }),
+        })),
       });
     }
 
@@ -138,7 +160,7 @@ export class SQLiteStorage implements StorageAdapter {
       'INSERT OR IGNORE INTO entities (name, entity_type) VALUES (?, ?)'
     );
     const insertObservation = this.db.prepare(
-      'INSERT INTO observations (entity_id, content) VALUES (?, ?)'
+      'INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)'
     );
     const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ?');
 
@@ -150,7 +172,8 @@ export class SQLiteStorage implements StorageAdapter {
         if (result.changes > 0) {
           const entityId = (getEntityId.get(entity.name) as { id: number }).id;
           for (const observation of entity.observations) {
-            insertObservation.run(entityId, observation);
+            const timestamp = observation.timestamp || new Date().toISOString();
+            insertObservation.run(entityId, observation.text, timestamp, observation.source || null);
           }
           newEntities.push(entity);
         }
@@ -182,17 +205,17 @@ export class SQLiteStorage implements StorageAdapter {
   }
 
   async addObservations(
-    observations: { entityName: string; contents: string[] }[]
-  ): Promise<{ entityName: string; addedObservations: string[] }[]> {
+    observations: { entityName: string; contents: Observation[] }[]
+  ): Promise<{ entityName: string; addedObservations: Observation[] }[]> {
     const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ?');
     const getExistingObservations = this.db.prepare(
       'SELECT content FROM observations WHERE entity_id = ?'
     );
     const insertObservation = this.db.prepare(
-      'INSERT INTO observations (entity_id, content) VALUES (?, ?)'
+      'INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)'
     );
 
-    const results: { entityName: string; addedObservations: string[] }[] = [];
+    const results: { entityName: string; addedObservations: Observation[] }[] = [];
 
     const transaction = this.db.transaction((observationsToAdd: typeof observations) => {
       for (const obs of observationsToAdd) {
@@ -204,11 +227,16 @@ export class SQLiteStorage implements StorageAdapter {
         const existingObs = getExistingObservations.all(entityRow.id) as Array<{ content: string }>;
         const existingSet = new Set(existingObs.map(o => o.content));
 
-        const addedObservations: string[] = [];
-        for (const content of obs.contents) {
-          if (!existingSet.has(content)) {
-            insertObservation.run(entityRow.id, content);
-            addedObservations.push(content);
+        const addedObservations: Observation[] = [];
+        for (const observation of obs.contents) {
+          if (!existingSet.has(observation.text)) {
+            const timestamp = observation.timestamp || new Date().toISOString();
+            insertObservation.run(entityRow.id, observation.text, timestamp, observation.source || null);
+            addedObservations.push({
+              text: observation.text,
+              timestamp,
+              ...(observation.source && { source: observation.source }),
+            });
           }
         }
 
@@ -234,7 +262,7 @@ export class SQLiteStorage implements StorageAdapter {
     transaction(entityNames);
   }
 
-  async deleteObservations(deletions: { entityName: string; observations: string[] }[]): Promise<void> {
+  async deleteObservations(deletions: { entityName: string; observations: Observation[] }[]): Promise<void> {
     const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ?');
     const deleteObservation = this.db.prepare(
       'DELETE FROM observations WHERE entity_id = ? AND content = ?'
@@ -245,7 +273,7 @@ export class SQLiteStorage implements StorageAdapter {
         const entityRow = getEntityId.get(deletion.entityName) as { id: number } | undefined;
         if (entityRow) {
           for (const observation of deletion.observations) {
-            deleteObservation.run(entityRow.id, observation);
+            deleteObservation.run(entityRow.id, observation.text);
           }
         }
       }
@@ -293,13 +321,17 @@ export class SQLiteStorage implements StorageAdapter {
     for (const row of entityRows) {
       entityIds.add(row.id);
       const observations = this.db
-        .prepare('SELECT content FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ content: string }>;
+        .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ content: string; timestamp: string | null; source: string | null }>;
 
       entities.push({
         name: row.name,
         entityType: row.entity_type,
-        observations: observations.map(o => o.content),
+        observations: observations.map(o => ({
+          text: o.content,
+          ...(o.timestamp && { timestamp: o.timestamp }),
+          ...(o.source && { source: o.source }),
+        })),
       });
     }
 
@@ -344,13 +376,17 @@ export class SQLiteStorage implements StorageAdapter {
 
     for (const row of entityRows) {
       const observations = this.db
-        .prepare('SELECT content FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ content: string }>;
+        .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ content: string; timestamp: string | null; source: string | null }>;
 
       entities.push({
         name: row.name,
         entityType: row.entity_type,
-        observations: observations.map(o => o.content),
+        observations: observations.map(o => ({
+          text: o.content,
+          ...(o.timestamp && { timestamp: o.timestamp }),
+          ...(o.source && { source: o.source }),
+        })),
       });
     }
 

@@ -34,7 +34,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { CategoryManager } from './managers/CategoryManager.js';
 import { KnowledgeGraphManager } from './managers/KnowledgeGraphManager.js';
-import type { Entity, Relation } from './types/graph.js';
+import type { Entity, Relation, Observation } from './types/graph.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,8 +75,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   entityType: { type: "string", description: "The type of the entity" },
                   observations: {
                     type: "array",
-                    items: { type: "string" },
-                    description: "An array of observation contents associated with the entity"
+                    items: {
+                      type: "object",
+                      properties: {
+                        text: { type: "string", description: "The observation text content" },
+                        timestamp: { type: "string", description: "ISO 8601 timestamp (optional, defaults to current time)" },
+                        source: { type: "string", description: "Source of the observation (optional, e.g., 'code-analysis', 'user-input')" }
+                      },
+                      required: ["text"],
+                      additionalProperties: false
+                    },
+                    description: "An array of observations associated with the entity"
                   },
                 },
                 required: ["name", "entityType", "observations"],
@@ -134,8 +143,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   entityName: { type: "string", description: "The name of the entity to add the observations to" },
                   contents: {
                     type: "array",
-                    items: { type: "string" },
-                    description: "An array of observation contents to add"
+                    items: {
+                      type: "object",
+                      properties: {
+                        text: { type: "string", description: "The observation text content" },
+                        timestamp: { type: "string", description: "ISO 8601 timestamp (optional, defaults to current time)" },
+                        source: { type: "string", description: "Source of the observation (optional, e.g., 'code-analysis', 'user-input')" }
+                      },
+                      required: ["text"],
+                      additionalProperties: false
+                    },
+                    description: "An array of observations to add"
                   },
                 },
                 required: ["entityName", "contents"],
@@ -185,8 +203,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                   entityName: { type: "string", description: "The name of the entity containing the observations" },
                   observations: {
                     type: "array",
-                    items: { type: "string" },
-                    description: "An array of observations to delete"
+                    items: {
+                      type: "object",
+                      properties: {
+                        text: { type: "string", description: "The observation text content to delete" },
+                        timestamp: { type: "string", description: "ISO 8601 timestamp (optional)" },
+                        source: { type: "string", description: "Source of the observation (optional)" }
+                      },
+                      required: ["text"],
+                      additionalProperties: false
+                    },
+                    description: "An array of observations to delete (matched by text content)"
                   },
                 },
                 required: ["entityName", "observations"],
@@ -346,7 +373,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.addObservations(
-                args?.observations as { entityName: string; contents: string[] }[],
+                args?.observations as { entityName: string; contents: Observation[] }[],
                 args?.category as string | undefined
               ),
               null,
@@ -364,7 +391,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "delete_observations":
         await knowledgeGraphManager.deleteObservations(
-          args?.deletions as { entityName: string; observations: string[] }[],
+          args?.deletions as { entityName: string; observations: Observation[] }[],
           args?.category as string | undefined
         );
         return { content: [{ type: "text", text: "Observations deleted successfully" }] };
