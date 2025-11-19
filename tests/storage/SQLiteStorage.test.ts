@@ -23,7 +23,7 @@ SOFTWARE.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SQLiteStorage } from '../../src/storage/SQLiteStorage.js';
-import type { Entity, Relation } from '../../src/types/graph.js';
+import type { Entity, Relation, Observation } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -62,21 +62,24 @@ describe('SQLiteStorage', () => {
       const entities: Entity[] = [{
         name: 'TestEntity',
         entityType: 'test',
-        observations: ['observation1', 'observation2']
+        observations: [{ text: 'observation1' }, { text: 'observation2' }]
       }];
 
       const created = await storage.createEntities(entities);
       expect(created).toEqual(entities);
 
       const graph = await storage.loadGraph();
-      expect(graph.entities).toEqual(entities);
+      expect(graph.entities).toHaveLength(1);
+      expect(graph.entities[0].name).toBe('TestEntity');
+      expect(graph.entities[0].entityType).toBe('test');
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['observation1', 'observation2']);
     });
 
     it('should create multiple entities', async () => {
       const entities: Entity[] = [
-        { name: 'Entity1', entityType: 'type1', observations: ['obs1'] },
-        { name: 'Entity2', entityType: 'type2', observations: ['obs2'] },
-        { name: 'Entity3', entityType: 'type3', observations: ['obs3'] }
+        { name: 'Entity1', entityType: 'type1', observations: [{ text: 'obs1' }] },
+        { name: 'Entity2', entityType: 'type2', observations: [{ text: 'obs2' }] },
+        { name: 'Entity3', entityType: 'type3', observations: [{ text: 'obs3' }] }
       ];
 
       const created = await storage.createEntities(entities);
@@ -90,7 +93,7 @@ describe('SQLiteStorage', () => {
       const entity: Entity = {
         name: 'Duplicate',
         entityType: 'test',
-        observations: ['obs1']
+        observations: [{ text: 'obs1' }]
       };
 
       await storage.createEntities([entity]);
@@ -119,7 +122,7 @@ describe('SQLiteStorage', () => {
       const entity: Entity = {
         name: 'Entity-With_Special.Chars',
         entityType: 'test',
-        observations: ['obs']
+        observations: [{ text: 'obs' }]
       };
 
       await storage.createEntities([entity]);
@@ -133,13 +136,13 @@ describe('SQLiteStorage', () => {
       const entity: Entity = {
         name: 'LongObs',
         entityType: 'test',
-        observations: [longText]
+        observations: [{ text: longText }]
       };
 
       await storage.createEntities([entity]);
       const graph = await storage.loadGraph();
 
-      expect(graph.entities[0].observations[0]).toBe(longText);
+      expect(graph.entities[0].observations[0].text).toBe(longText);
     });
   });
 
@@ -148,72 +151,72 @@ describe('SQLiteStorage', () => {
       await storage.createEntities([{
         name: 'TestEntity',
         entityType: 'test',
-        observations: ['initial']
+        observations: [{ text: 'initial' }]
       }]);
     });
 
     it('should add observations to existing entity', async () => {
       const result = await storage.addObservations([{
         entityName: 'TestEntity',
-        contents: ['obs1', 'obs2']
+        contents: [{ text: 'obs1' }, { text: 'obs2' }]
       }]);
 
-      expect(result[0].addedObservations).toEqual(['obs1', 'obs2']);
+      expect(result[0].addedObservations.map(o => o.text)).toEqual(['obs1', 'obs2']);
 
       const graph = await storage.loadGraph();
-      expect(graph.entities[0].observations).toEqual(['initial', 'obs1', 'obs2']);
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['initial', 'obs1', 'obs2']);
     });
 
     it('should not add duplicate observations', async () => {
       await storage.addObservations([{
         entityName: 'TestEntity',
-        contents: ['obs1']
+        contents: [{ text: 'obs1' }]
       }]);
 
       const result = await storage.addObservations([{
         entityName: 'TestEntity',
-        contents: ['obs1', 'obs2']
+        contents: [{ text: 'obs1' }, { text: 'obs2' }]
       }]);
 
-      expect(result[0].addedObservations).toEqual(['obs2']);
+      expect(result[0].addedObservations.map(o => o.text)).toEqual(['obs2']);
     });
 
     it('should throw error when adding observations to non-existent entity', async () => {
       await expect(storage.addObservations([{
         entityName: 'NonExistent',
-        contents: ['obs']
+        contents: [{ text: 'obs' }]
       }])).rejects.toThrow('Entity with name NonExistent not found');
     });
 
     it('should delete observations from entity', async () => {
       await storage.addObservations([{
         entityName: 'TestEntity',
-        contents: ['obs1', 'obs2', 'obs3']
+        contents: [{ text: 'obs1' }, { text: 'obs2' }, { text: 'obs3' }]
       }]);
 
       await storage.deleteObservations([{
         entityName: 'TestEntity',
-        observations: ['obs2']
+        observations: [{ text: 'obs2' }]
       }]);
 
       const graph = await storage.loadGraph();
-      expect(graph.entities[0].observations).toEqual(['initial', 'obs1', 'obs3']);
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['initial', 'obs1', 'obs3']);
     });
 
     it('should handle deleting non-existent observations silently', async () => {
       await storage.deleteObservations([{
         entityName: 'TestEntity',
-        observations: ['nonexistent']
+        observations: [{ text: 'nonexistent' }]
       }]);
 
       const graph = await storage.loadGraph();
-      expect(graph.entities[0].observations).toEqual(['initial']);
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['initial']);
     });
 
     it('should handle deleting observations from non-existent entity silently', async () => {
       await expect(storage.deleteObservations([{
         entityName: 'NonExistent',
-        observations: ['obs']
+        observations: [{ text: 'obs' }]
       }])).resolves.not.toThrow();
     });
   });
@@ -307,9 +310,9 @@ describe('SQLiteStorage', () => {
   describe('Delete Entity Operations', () => {
     beforeEach(async () => {
       await storage.createEntities([
-        { name: 'Entity1', entityType: 'type1', observations: ['obs1'] },
-        { name: 'Entity2', entityType: 'type2', observations: ['obs2'] },
-        { name: 'Entity3', entityType: 'type3', observations: ['obs3'] }
+        { name: 'Entity1', entityType: 'type1', observations: [{ text: 'obs1' }] },
+        { name: 'Entity2', entityType: 'type2', observations: [{ text: 'obs2' }] },
+        { name: 'Entity3', entityType: 'type3', observations: [{ text: 'obs3' }] }
       ]);
 
       await storage.createRelations([
@@ -353,9 +356,9 @@ describe('SQLiteStorage', () => {
   describe('Search Operations', () => {
     beforeEach(async () => {
       await storage.createEntities([
-        { name: 'UserService', entityType: 'service', observations: ['Handles authentication', 'Uses JWT'] },
-        { name: 'DatabaseClient', entityType: 'client', observations: ['PostgreSQL connection'] },
-        { name: 'AuthController', entityType: 'controller', observations: ['REST API endpoints'] }
+        { name: 'UserService', entityType: 'service', observations: [{ text: 'Handles authentication' }, { text: 'Uses JWT' }] },
+        { name: 'DatabaseClient', entityType: 'client', observations: [{ text: 'PostgreSQL connection' }] },
+        { name: 'AuthController', entityType: 'controller', observations: [{ text: 'REST API endpoints' }] }
       ]);
 
       await storage.createRelations([
@@ -411,9 +414,9 @@ describe('SQLiteStorage', () => {
   describe('Open Nodes Operations', () => {
     beforeEach(async () => {
       await storage.createEntities([
-        { name: 'Entity1', entityType: 'type1', observations: ['obs1'] },
-        { name: 'Entity2', entityType: 'type2', observations: ['obs2'] },
-        { name: 'Entity3', entityType: 'type3', observations: ['obs3'] }
+        { name: 'Entity1', entityType: 'type1', observations: [{ text: 'obs1' }] },
+        { name: 'Entity2', entityType: 'type2', observations: [{ text: 'obs2' }] },
+        { name: 'Entity3', entityType: 'type3', observations: [{ text: 'obs3' }] }
       ]);
 
       await storage.createRelations([
@@ -476,12 +479,12 @@ describe('SQLiteStorage', () => {
     });
 
     it('should maintain data integrity on multiple operations', async () => {
-      const entity: Entity = { name: 'Test', entityType: 'type', observations: ['obs1'] };
+      const entity: Entity = { name: 'Test', entityType: 'type', observations: [{ text: 'obs1' }] };
       await storage.createEntities([entity]);
 
       await Promise.all([
-        storage.addObservations([{ entityName: 'Test', contents: ['obs2'] }]),
-        storage.addObservations([{ entityName: 'Test', contents: ['obs3'] }])
+        storage.addObservations([{ entityName: 'Test', contents: [{ text: 'obs2' }] }]),
+        storage.addObservations([{ entityName: 'Test', contents: [{ text: 'obs3' }] }])
       ]);
 
       const graph = await storage.loadGraph();
@@ -504,18 +507,18 @@ describe('SQLiteStorage', () => {
       const entity: Entity = {
         name: 'Entity_测试_🚀',
         entityType: 'test',
-        observations: ['Unicode: 日本語']
+        observations: [{ text: 'Unicode: 日本語' }]
       };
 
       await storage.createEntities([entity]);
       const graph = await storage.loadGraph();
 
       expect(graph.entities[0].name).toBe('Entity_测试_🚀');
-      expect(graph.entities[0].observations[0]).toBe('Unicode: 日本語');
+      expect(graph.entities[0].observations[0].text).toBe('Unicode: 日本語');
     });
 
     it('should handle very large number of observations', async () => {
-      const observations = Array.from({ length: 1000 }, (_, i) => `obs${i}`);
+      const observations = Array.from({ length: 1000 }, (_, i) => ({ text: `obs${i}` }));
       const entity: Entity = {
         name: 'ManyObs',
         entityType: 'test',
@@ -532,7 +535,7 @@ describe('SQLiteStorage', () => {
       const entities = Array.from({ length: 100 }, (_, i) => ({
         name: `Entity${i}`,
         entityType: 'test',
-        observations: [`obs${i}`]
+        observations: [{ text: `obs${i}` }]
       }));
 
       await storage.createEntities(entities);
@@ -547,7 +550,7 @@ describe('SQLiteStorage', () => {
       const entity: Entity = {
         name: 'Persistent',
         entityType: 'test',
-        observations: ['data']
+        observations: [{ text: 'data' }]
       };
 
       await storage.createEntities([entity]);
@@ -557,14 +560,16 @@ describe('SQLiteStorage', () => {
       const graph = await newStorage.loadGraph();
 
       expect(graph.entities).toHaveLength(1);
-      expect(graph.entities[0]).toEqual(entity);
+      expect(graph.entities[0].name).toBe('Persistent');
+      expect(graph.entities[0].entityType).toBe('test');
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['data']);
 
       newStorage.close();
     });
 
     it('should handle database file being reopened', async () => {
       await storage.createEntities([
-        { name: 'E1', entityType: 't1', observations: ['o1'] }
+        { name: 'E1', entityType: 't1', observations: [{ text: 'o1' }] }
       ]);
 
       const graph1 = await storage.loadGraph();

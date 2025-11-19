@@ -24,7 +24,7 @@ SOFTWARE.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { KnowledgeGraphManager } from '../../src/managers/KnowledgeGraphManager.js';
 import { CategoryManager } from '../../src/managers/CategoryManager.js';
-import type { Entity, Relation } from '../../src/types/graph.js';
+import type { Entity, Relation, Observation } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -52,13 +52,13 @@ describe('Full Workflow Integration Tests', () => {
       await kgManager.createEntities([{
         name: 'Alice',
         entityType: 'colleague',
-        observations: ['Software engineer', 'Works on frontend team']
+        observations: [{ text: 'Software engineer' }, { text: 'Works on frontend team' }]
       }], 'work');
 
       await kgManager.createEntities([{
         name: 'Alice',
         entityType: 'friend',
-        observations: ['Enjoys hiking', 'Birthday in June']
+        observations: [{ text: 'Enjoys hiking' }, { text: 'Birthday in June' }]
       }], 'personal');
 
       const workGraph = await kgManager.readGraph('work');
@@ -66,26 +66,26 @@ describe('Full Workflow Integration Tests', () => {
 
       expect(workGraph.entities[0].entityType).toBe('colleague');
       expect(personalGraph.entities[0].entityType).toBe('friend');
-      expect(workGraph.entities[0].observations).toContain('Software engineer');
-      expect(personalGraph.entities[0].observations).toContain('Enjoys hiking');
+      expect(workGraph.entities[0].observations.map(o => o.text)).toContain('Software engineer');
+      expect(personalGraph.entities[0].observations.map(o => o.text)).toContain('Enjoys hiking');
     });
 
     it('should support adding information over time', async () => {
       await kgManager.createEntities([{
         name: 'Project_Alpha',
         entityType: 'project',
-        observations: ['Started Q1 2025']
+        observations: [{ text: 'Started Q1 2025' }]
       }], 'work');
 
       await kgManager.addObservations([{
         entityName: 'Project_Alpha',
-        contents: ['Uses React and TypeScript', 'Team of 5 developers']
+        contents: [{ text: 'Uses React and TypeScript' }, { text: 'Team of 5 developers' }]
       }], 'work');
 
       await kgManager.createEntities([{
         name: 'Sarah',
         entityType: 'colleague',
-        observations: ['Project lead']
+        observations: [{ text: 'Project lead' }]
       }], 'work');
 
       await kgManager.createRelations([{
@@ -105,9 +105,9 @@ describe('Full Workflow Integration Tests', () => {
   describe('Code Dependency Tracking Workflow', () => {
     it('should track dependencies for multiple projects', async () => {
       await kgManager.createEntities([
-        { name: 'UserService', entityType: 'service', observations: ['Handles authentication'] },
-        { name: 'DatabaseClient', entityType: 'client', observations: ['PostgreSQL wrapper'] },
-        { name: 'AuthController', entityType: 'controller', observations: ['REST API'] }
+        { name: 'UserService', entityType: 'service', observations: [{ text: 'Handles authentication' }] },
+        { name: 'DatabaseClient', entityType: 'client', observations: [{ text: 'PostgreSQL wrapper' }] },
+        { name: 'AuthController', entityType: 'controller', observations: [{ text: 'REST API' }] }
       ], 'project-backend');
 
       await kgManager.createRelations([
@@ -116,8 +116,8 @@ describe('Full Workflow Integration Tests', () => {
       ], 'project-backend');
 
       await kgManager.createEntities([
-        { name: 'LoginComponent', entityType: 'component', observations: ['React component'] },
-        { name: 'APIClient', entityType: 'client', observations: ['HTTP client'] }
+        { name: 'LoginComponent', entityType: 'component', observations: [{ text: 'React component' }] },
+        { name: 'APIClient', entityType: 'client', observations: [{ text: 'HTTP client' }] }
       ], 'project-frontend');
 
       await kgManager.createRelations([
@@ -135,10 +135,10 @@ describe('Full Workflow Integration Tests', () => {
 
     it('should support dependency analysis queries', async () => {
       await kgManager.createEntities([
-        { name: 'ModuleA', entityType: 'module', observations: ['Core module'] },
-        { name: 'ModuleB', entityType: 'module', observations: ['Helper module'] },
-        { name: 'ModuleC', entityType: 'module', observations: ['Utility module'] },
-        { name: 'ModuleD', entityType: 'module', observations: ['Database module'] }
+        { name: 'ModuleA', entityType: 'module', observations: [{ text: 'Core module' }] },
+        { name: 'ModuleB', entityType: 'module', observations: [{ text: 'Helper module' }] },
+        { name: 'ModuleC', entityType: 'module', observations: [{ text: 'Utility module' }] },
+        { name: 'ModuleD', entityType: 'module', observations: [{ text: 'Database module' }] }
       ], 'dependencies');
 
       await kgManager.createRelations([
@@ -162,7 +162,7 @@ describe('Full Workflow Integration Tests', () => {
       const category = 'test-lifecycle';
 
       await kgManager.createEntities([
-        { name: 'Entity1', entityType: 'type1', observations: ['initial'] }
+        { name: 'Entity1', entityType: 'type1', observations: [{ text: 'initial' }] }
       ], category);
 
       let graph = await kgManager.readGraph(category);
@@ -170,7 +170,7 @@ describe('Full Workflow Integration Tests', () => {
 
       await kgManager.addObservations([{
         entityName: 'Entity1',
-        contents: ['additional info']
+        contents: [{ text: 'additional info' }]
       }], category);
 
       graph = await kgManager.readGraph(category);
@@ -190,7 +190,7 @@ describe('Full Workflow Integration Tests', () => {
 
       await kgManager.deleteObservations([{
         entityName: 'Entity1',
-        observations: ['initial']
+        observations: [{ text: 'initial' }]
       }], category);
 
       graph = await kgManager.readGraph(category);
@@ -214,10 +214,10 @@ describe('Full Workflow Integration Tests', () => {
   describe('Search and Discovery', () => {
     beforeEach(async () => {
       await kgManager.createEntities([
-        { name: 'UserAuthentication', entityType: 'feature', observations: ['Handles login', 'Uses JWT'] },
-        { name: 'UserProfile', entityType: 'feature', observations: ['Displays user info'] },
-        { name: 'AdminPanel', entityType: 'feature', observations: ['Admin dashboard'] },
-        { name: 'DatabaseConnection', entityType: 'infrastructure', observations: ['PostgreSQL'] }
+        { name: 'UserAuthentication', entityType: 'feature', observations: [{ text: 'Handles login' }, { text: 'Uses JWT' }] },
+        { name: 'UserProfile', entityType: 'feature', observations: [{ text: 'Displays user info' }] },
+        { name: 'AdminPanel', entityType: 'feature', observations: [{ text: 'Admin dashboard' }] },
+        { name: 'DatabaseConnection', entityType: 'infrastructure', observations: [{ text: 'PostgreSQL' }] }
       ], 'features');
 
       await kgManager.createRelations([
@@ -256,7 +256,7 @@ describe('Full Workflow Integration Tests', () => {
   describe('Data Persistence and Recovery', () => {
     it('should persist data across manager restarts', async () => {
       await kgManager.createEntities([
-        { name: 'PersistentEntity', entityType: 'test', observations: ['data'] }
+        { name: 'PersistentEntity', entityType: 'test', observations: [{ text: 'data' }] }
       ], 'persist');
 
       await kgManager.createRelations([
@@ -325,7 +325,7 @@ describe('Full Workflow Integration Tests', () => {
         entities.push({
           name: `Level${i}`,
           entityType: 'level',
-          observations: [`Depth ${i}`]
+          observations: [{ text: `Depth ${i}` }]
         });
 
         if (i > 0) {
@@ -372,7 +372,7 @@ describe('Full Workflow Integration Tests', () => {
 
       for (const project of projects) {
         await kgManager.createEntities([
-          { name: 'README', entityType: 'doc', observations: [`${project} documentation`] }
+          { name: 'README', entityType: 'doc', observations: [{ text: `${project} documentation` }] }
         ], project);
       }
 
@@ -386,11 +386,11 @@ describe('Full Workflow Integration Tests', () => {
 
     it('should support archiving old projects', async () => {
       await kgManager.createEntities([
-        { name: 'OldFeature', entityType: 'feature', observations: ['deprecated'] }
+        { name: 'OldFeature', entityType: 'feature', observations: [{ text: 'deprecated' }] }
       ], 'old-project');
 
       await kgManager.createEntities([
-        { name: 'NewFeature', entityType: 'feature', observations: ['active'] }
+        { name: 'NewFeature', entityType: 'feature', observations: [{ text: 'active' }] }
       ], 'new-project');
 
       await kgManager.deleteCategory('old-project');
@@ -423,7 +423,7 @@ describe('Full Workflow Integration Tests', () => {
 
     it('should handle concurrent reads', async () => {
       await kgManager.createEntities([
-        { name: 'Shared', entityType: 'test', observations: ['data'] }
+        { name: 'Shared', entityType: 'test', observations: [{ text: 'data' }] }
       ], 'shared');
 
       const results = await Promise.all([
@@ -443,17 +443,17 @@ describe('Full Workflow Integration Tests', () => {
     it('should track codebase structure and documentation', async () => {
       await kgManager.createEntities([
         { name: 'AuthService', entityType: 'class', observations: [
-          'Located in src/services/auth.ts',
-          'Exports login, logout, validateToken methods',
-          'Uses bcrypt for password hashing'
+          { text: 'Located in src/services/auth.ts' },
+          { text: 'Exports login, logout, validateToken methods' },
+          { text: 'Uses bcrypt for password hashing' }
         ]},
         { name: 'UserModel', entityType: 'class', observations: [
-          'Database model for users',
-          'Fields: id, email, passwordHash, createdAt'
+          { text: 'Database model for users' },
+          { text: 'Fields: id, email, passwordHash, createdAt' }
         ]},
         { name: 'JWT', entityType: 'library', observations: [
-          'jsonwebtoken npm package',
-          'Used for token generation'
+          { text: 'jsonwebtoken npm package' },
+          { text: 'Used for token generation' }
         ]}
       ], 'codebase-docs');
 
@@ -464,7 +464,7 @@ describe('Full Workflow Integration Tests', () => {
 
       const authInfo = await kgManager.searchNodes('AuthService', 'codebase-docs');
 
-      expect(authInfo.entities[0].observations).toContain('Located in src/services/auth.ts');
+      expect(authInfo.entities[0].observations.map(o => o.text)).toContain('Located in src/services/auth.ts');
       expect(authInfo.relations.filter(r => r.from === 'AuthService')).toHaveLength(2);
 
       const jwtUsage = await kgManager.searchNodes('JWT', 'codebase-docs');

@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import type { Entity, Relation, KnowledgeGraph } from '../types/graph.js';
+import type { Entity, Relation, KnowledgeGraph, Observation } from '../types/graph.js';
 import { CategoryManager } from './CategoryManager.js';
 
 export class KnowledgeGraphManager {
@@ -44,9 +44,9 @@ export class KnowledgeGraphManager {
   }
 
   async addObservations(
-    observations: { entityName: string; contents: string[] }[],
+    observations: { entityName: string; contents: Observation[] }[],
     category?: string
-  ): Promise<{ entityName: string; addedObservations: string[] }[]> {
+  ): Promise<{ entityName: string; addedObservations: Observation[] }[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
     return storage.addObservations(observations);
@@ -59,7 +59,7 @@ export class KnowledgeGraphManager {
   }
 
   async deleteObservations(
-    deletions: { entityName: string; observations: string[] }[],
+    deletions: { entityName: string; observations: Observation[] }[],
     category?: string
   ): Promise<void> {
     const cat = category || this.defaultCategory;

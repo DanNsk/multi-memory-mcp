@@ -24,7 +24,7 @@ SOFTWARE.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { KnowledgeGraphManager } from '../../src/managers/KnowledgeGraphManager.js';
 import { CategoryManager } from '../../src/managers/CategoryManager.js';
-import type { Entity, Relation } from '../../src/types/graph.js';
+import type { Entity, Relation, Observation } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -52,7 +52,7 @@ describe('KnowledgeGraphManager', () => {
       const entities: Entity[] = [{
         name: 'DefaultEntity',
         entityType: 'test',
-        observations: ['obs']
+        observations: [{ text: 'obs' }]
       }];
 
       await kgManager.createEntities(entities);
@@ -94,7 +94,7 @@ describe('KnowledgeGraphManager', () => {
       const entities: Entity[] = [{
         name: 'WorkEntity',
         entityType: 'work',
-        observations: ['work obs']
+        observations: [{ text: 'work obs' }]
       }];
 
       await kgManager.createEntities(entities, 'work');
@@ -130,13 +130,13 @@ describe('KnowledgeGraphManager', () => {
       const entity1: Entity = {
         name: 'Entity',
         entityType: 'type1',
-        observations: ['obs1']
+        observations: [{ text: 'obs1' }]
       };
 
       const entity2: Entity = {
         name: 'Entity',
         entityType: 'type2',
-        observations: ['obs2']
+        observations: [{ text: 'obs2' }]
       };
 
       await kgManager.createEntities([entity1], 'cat1');
@@ -151,8 +151,8 @@ describe('KnowledgeGraphManager', () => {
 
     it('should return created entities', async () => {
       const entities: Entity[] = [
-        { name: 'E1', entityType: 't1', observations: ['o1'] },
-        { name: 'E2', entityType: 't2', observations: ['o2'] }
+        { name: 'E1', entityType: 't1', observations: [{ text: 'o1' }] },
+        { name: 'E2', entityType: 't2', observations: [{ text: 'o2' }] }
       ];
 
       const created = await kgManager.createEntities(entities, 'test');
@@ -239,49 +239,49 @@ describe('KnowledgeGraphManager', () => {
       await kgManager.createEntities([{
         name: 'TestEntity',
         entityType: 'test',
-        observations: ['initial']
+        observations: [{ text: 'initial' }]
       }], 'test');
     });
 
     it('should add observations in specified category', async () => {
       const result = await kgManager.addObservations([{
         entityName: 'TestEntity',
-        contents: ['new obs']
+        contents: [{ text: 'new obs' }]
       }], 'test');
 
-      expect(result[0].addedObservations).toEqual(['new obs']);
+      expect(result[0].addedObservations.map(o => o.text)).toEqual(['new obs']);
 
       const graph = await kgManager.readGraph('test');
-      expect(graph.entities[0].observations).toContain('new obs');
+      expect(graph.entities[0].observations.map(o => o.text)).toContain('new obs');
     });
 
     it('should not affect observations in other categories', async () => {
       await kgManager.createEntities([{
         name: 'TestEntity',
         entityType: 'test',
-        observations: ['other obs']
+        observations: [{ text: 'other obs' }]
       }], 'other');
 
       await kgManager.addObservations([{
         entityName: 'TestEntity',
-        contents: ['test obs']
+        contents: [{ text: 'test obs' }]
       }], 'test');
 
       const testGraph = await kgManager.readGraph('test');
       const otherGraph = await kgManager.readGraph('other');
 
-      expect(testGraph.entities[0].observations).toContain('test obs');
-      expect(otherGraph.entities[0].observations).not.toContain('test obs');
+      expect(testGraph.entities[0].observations.map(o => o.text)).toContain('test obs');
+      expect(otherGraph.entities[0].observations.map(o => o.text)).not.toContain('test obs');
     });
 
     it('should delete observations from specified category only', async () => {
       await kgManager.deleteObservations([{
         entityName: 'TestEntity',
-        observations: ['initial']
+        observations: [{ text: 'initial' }]
       }], 'test');
 
       const graph = await kgManager.readGraph('test');
-      expect(graph.entities[0].observations).not.toContain('initial');
+      expect(graph.entities[0].observations.map(o => o.text)).not.toContain('initial');
     });
   });
 
@@ -322,12 +322,12 @@ describe('KnowledgeGraphManager', () => {
   describe('Search Operations with Categories', () => {
     beforeEach(async () => {
       await kgManager.createEntities([
-        { name: 'UserService', entityType: 'service', observations: ['auth'] },
-        { name: 'DataService', entityType: 'service', observations: ['data'] }
+        { name: 'UserService', entityType: 'service', observations: [{ text: 'auth' }] },
+        { name: 'DataService', entityType: 'service', observations: [{ text: 'data' }] }
       ], 'work');
 
       await kgManager.createEntities([
-        { name: 'UserProfile', entityType: 'profile', observations: ['personal'] }
+        { name: 'UserProfile', entityType: 'profile', observations: [{ text: 'personal' }] }
       ], 'personal');
     });
 
@@ -418,15 +418,15 @@ describe('KnowledgeGraphManager', () => {
   describe('Multi-Category Workflows', () => {
     it('should support complex multi-category operations', async () => {
       await kgManager.createEntities([
-        { name: 'WorkModule', entityType: 'module', observations: ['work code'] }
+        { name: 'WorkModule', entityType: 'module', observations: [{ text: 'work code' }] }
       ], 'work');
 
       await kgManager.createEntities([
-        { name: 'PersonalNote', entityType: 'note', observations: ['personal note'] }
+        { name: 'PersonalNote', entityType: 'note', observations: [{ text: 'personal note' }] }
       ], 'personal');
 
       await kgManager.createEntities([
-        { name: 'ProjectComponent', entityType: 'component', observations: ['project code'] }
+        { name: 'ProjectComponent', entityType: 'component', observations: [{ text: 'project code' }] }
       ], 'project-alpha');
 
       const workGraph = await kgManager.readGraph('work');
@@ -524,12 +524,12 @@ describe('KnowledgeGraphManager', () => {
 
     it('should maintain consistency across operations', async () => {
       await kgManager.createEntities([
-        { name: 'E1', entityType: 't', observations: ['obs1'] }
+        { name: 'E1', entityType: 't', observations: [{ text: 'obs1' }] }
       ], 'test');
 
       await kgManager.addObservations([{
         entityName: 'E1',
-        contents: ['obs2', 'obs3']
+        contents: [{ text: 'obs2' }, { text: 'obs3' }]
       }], 'test');
 
       await kgManager.createRelations([
@@ -538,7 +538,7 @@ describe('KnowledgeGraphManager', () => {
 
       const graph = await kgManager.readGraph('test');
 
-      expect(graph.entities[0].observations).toEqual(['obs1', 'obs2', 'obs3']);
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['obs1', 'obs2', 'obs3']);
       expect(graph.relations).toHaveLength(1);
     });
   });

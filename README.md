@@ -69,13 +69,23 @@ Organize memories into separate isolated databases. Each category has its own SQ
 Nodes in the knowledge graph with:
 - Unique name (identifier)
 - Type (e.g., "module", "class", "person", "project")
-- List of observations
+- List of observations (structured with text, timestamp, and source)
 
 ```json
 {
   "name": "AuthService",
   "entityType": "module",
-  "observations": ["Handles authentication", "Located in src/auth/"]
+  "observations": [
+    {
+      "text": "Handles authentication",
+      "timestamp": "2025-11-19T10:30:00Z",
+      "source": "code-analysis"
+    },
+    {
+      "text": "Located in src/auth/",
+      "timestamp": "2025-11-19T10:31:00Z"
+    }
+  ]
 }
 ```
 
@@ -93,18 +103,32 @@ Directed connections between entities (active voice):
 
 ### Observations
 
-Atomic facts about entities:
+Atomic facts about entities with rich metadata:
 
 ```json
 {
   "entityName": "AuthService",
   "observations": [
-    "Uses JWT tokens",
-    "Connects to user database",
-    "Implements password hashing"
+    {
+      "text": "Uses JWT tokens",
+      "timestamp": "2025-11-19T10:30:00Z",
+      "source": "code-analysis"
+    },
+    {
+      "text": "Connects to user database",
+      "timestamp": "2025-11-19T10:31:15Z"
+    },
+    {
+      "text": "Critical for security - requires review"
+    }
   ]
 }
 ```
+
+**Observation fields:**
+- `text` (required): The observation content
+- `timestamp` (optional): ISO 8601 timestamp, defaults to current time if not provided
+- `source` (optional): Source indicator (e.g., "code-analysis", "user-input", "documentation")
 
 ## API Tools
 
@@ -120,7 +144,12 @@ All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
     {
       "name": "UserService",
       "entityType": "service",
-      "observations": ["Manages user data"]
+      "observations": [
+        {
+          "text": "Manages user data",
+          "source": "code-analysis"
+        }
+      ]
     }
   ]
 }
@@ -161,7 +190,16 @@ All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
   "observations": [
     {
       "entityName": "UserService",
-      "contents": ["Updated to v2.0", "Added caching"]
+      "contents": [
+        {
+          "text": "Updated to v2.0",
+          "timestamp": "2025-11-19T14:30:00Z",
+          "source": "code-analysis"
+        },
+        {
+          "text": "Added caching"
+        }
+      ]
     }
   ]
 }
@@ -215,9 +253,35 @@ Track module dependencies per project:
 {
   "category": "backend-service",
   "entities": [
-    {"name": "AuthModule", "entityType": "module", "observations": ["Exports login, logout"]},
-    {"name": "UserModule", "entityType": "module", "observations": ["User CRUD operations"]},
-    {"name": "Database", "entityType": "library", "observations": ["PostgreSQL client"]}
+    {
+      "name": "AuthModule",
+      "entityType": "module",
+      "observations": [
+        {
+          "text": "Exports login, logout",
+          "source": "code-analysis"
+        }
+      ]
+    },
+    {
+      "name": "UserModule",
+      "entityType": "module",
+      "observations": [
+        {
+          "text": "User CRUD operations",
+          "source": "documentation"
+        }
+      ]
+    },
+    {
+      "name": "Database",
+      "entityType": "library",
+      "observations": [
+        {
+          "text": "PostgreSQL client"
+        }
+      ]
+    }
   ],
   "relations": [
     {"from": "AuthModule", "to": "UserModule", "relationType": "imports"},
@@ -287,7 +351,7 @@ tests/
 ### Storage
 
 - **Database**: SQLite 3 with WAL mode
-- **Schema Version**: 1 (tracked in database)
+- **Schema Version**: 2 (tracked in database, auto-migrates from v1)
 - **Indexes**: On entity names, types, relations
 - **Transactions**: ACID-compliant operations
 - **Connection Limit**: Max 50 concurrent (LRU eviction)

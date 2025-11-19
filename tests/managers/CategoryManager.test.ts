@@ -23,6 +23,7 @@ SOFTWARE.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CategoryManager } from '../../src/managers/CategoryManager.js';
+import type { Observation } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -259,7 +260,7 @@ describe('CategoryManager', () => {
       await storage.createEntities([{
         name: 'TestEntity',
         entityType: 'test',
-        observations: ['data']
+        observations: [{ text: 'data' }]
       }]);
 
       await categoryManager.deleteCategory('withdata');
@@ -354,7 +355,7 @@ describe('CategoryManager', () => {
       await storage1.createEntities([{
         name: 'Entity1',
         entityType: 'type1',
-        observations: ['obs1']
+        observations: [{ text: 'obs1' }]
       }]);
 
       const graph1 = await storage1.loadGraph();
@@ -397,7 +398,7 @@ describe('CategoryManager', () => {
       await storage1.createEntities([{
         name: 'Entity',
         entityType: 'test',
-        observations: ['data']
+        observations: [{ text: 'data' }]
       }]);
 
       categoryManager.closeAll();
