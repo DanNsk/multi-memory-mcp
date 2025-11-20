@@ -12,7 +12,32 @@ A multi-category knowledge graph memory server using SQLite for persistent stora
 
 ## Quick Start
 
-### Installation
+### Run Directly with bunx (No Installation Required)
+
+The fastest way to use multi-memory-mcp is to run it directly from GitHub using `bunx`:
+
+```bash
+bunx github:DanNsk/multi-memory-mcp
+```
+
+This will download, build, and run the server automatically. Perfect for trying it out or using in Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "multi-memory": {
+      "command": "bunx",
+      "args": ["github:DanNsk/multi-memory-mcp"],
+      "env": {
+        "MEMORY_BASE_DIR": "/path/to/.memory",
+        "DEFAULT_CATEGORY": "default"
+      }
+    }
+  }
+}
+```
+
+### Installation (Local Development)
 
 ```bash
 git clone https://github.com/DanNsk/multi-memory-mcp
@@ -23,7 +48,31 @@ bun run build
 
 ### Configuration
 
-Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+Add to Claude Desktop config:
+
+**Config file locations:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+**Using bunx (recommended):**
+
+```json
+{
+  "mcpServers": {
+    "multi-memory": {
+      "command": "bunx",
+      "args": ["github:DanNsk/multi-memory-mcp"],
+      "env": {
+        "MEMORY_BASE_DIR": "/Users/yourname/.memory",
+        "DEFAULT_CATEGORY": "default"
+      }
+    }
+  }
+}
+```
+
+**Using local installation (macOS/Linux):**
 
 ```json
 {
@@ -33,6 +82,23 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
       "args": ["/absolute/path/to/multi-memory-mcp/dist/index.js"],
       "env": {
         "MEMORY_BASE_DIR": "/Users/yourname/.memory",
+        "DEFAULT_CATEGORY": "default"
+      }
+    }
+  }
+}
+```
+
+**Using local installation (Windows):**
+
+```json
+{
+  "mcpServers": {
+    "multi-memory": {
+      "command": "node",
+      "args": ["C:\\path\\to\\multi-memory-mcp\\dist\\index.js"],
+      "env": {
+        "MEMORY_BASE_DIR": "C:\\Users\\yourname\\.memory",
         "DEFAULT_CATEGORY": "default"
       }
     }
