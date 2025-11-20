@@ -43,10 +43,10 @@ export class KnowledgeGraphManager {
         const storage = await this.categoryManager.getStorageAdapter(cat);
         return storage.addObservations(observations);
     }
-    async deleteEntities(entityNames, category) {
+    async deleteEntities(entities, category) {
         const cat = category || this.defaultCategory;
         const storage = await this.categoryManager.getStorageAdapter(cat);
-        return storage.deleteEntities(entityNames);
+        return storage.deleteEntities(entities);
     }
     async deleteObservations(deletions, category) {
         const cat = category || this.defaultCategory;
@@ -68,10 +68,10 @@ export class KnowledgeGraphManager {
         const storage = await this.categoryManager.getStorageAdapter(cat);
         return storage.searchNodes(query);
     }
-    async openNodes(names, category) {
+    async openNodes(entities, category) {
         const cat = category || this.defaultCategory;
         const storage = await this.categoryManager.getStorageAdapter(cat);
-        return storage.openNodes(names);
+        return storage.openNodes(entities);
     }
     async listCategories() {
         return this.categoryManager.listCategories();

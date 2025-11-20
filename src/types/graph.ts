@@ -36,7 +36,9 @@ export interface Entity {
 
 export interface Relation {
   from: string;
+  fromType: string;
   to: string;
+  toType: string;
   relationType: string;
 }
 
@@ -45,15 +47,20 @@ export interface KnowledgeGraph {
   relations: Relation[];
 }
 
+export interface EntityReference {
+  name: string;
+  entityType: string;
+}
+
 export interface StorageAdapter {
   loadGraph(): Promise<KnowledgeGraph>;
   createEntities(entities: Entity[]): Promise<Entity[]>;
   createRelations(relations: Relation[]): Promise<Relation[]>;
-  addObservations(observations: { entityName: string; contents: Observation[] }[]): Promise<{ entityName: string; addedObservations: Observation[] }[]>;
-  deleteEntities(entityNames: string[]): Promise<void>;
-  deleteObservations(deletions: { entityName: string; observations: Observation[] }[]): Promise<void>;
+  addObservations(observations: { entityName: string; entityType: string; contents: Observation[] }[]): Promise<{ entityName: string; entityType: string; addedObservations: Observation[] }[]>;
+  deleteEntities(entities: EntityReference[]): Promise<void>;
+  deleteObservations(deletions: { entityName: string; entityType: string; observations: Observation[] }[]): Promise<void>;
   deleteRelations(relations: Relation[]): Promise<void>;
   searchNodes(query: string): Promise<KnowledgeGraph>;
-  openNodes(names: string[]): Promise<KnowledgeGraph>;
+  openNodes(entities: EntityReference[]): Promise<KnowledgeGraph>;
   close(): void;
 }
