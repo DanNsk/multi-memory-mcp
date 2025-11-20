@@ -34,12 +34,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { CategoryManager } from './managers/CategoryManager.js';
 import { KnowledgeGraphManager } from './managers/KnowledgeGraphManager.js';
+import { serialize, getFormatDescription, type SerializationFormat } from './serializer.js';
 import type { Entity, Relation, Observation } from './types/graph.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const MEMORY_BASE_DIR = process.env.MEMORY_BASE_DIR || path.join(process.cwd(), '.aim');
 const DEFAULT_CATEGORY = process.env.DEFAULT_CATEGORY || 'default';
+const SERIALIZATION_FORMAT = (process.env.SERIALIZATION_FORMAT || 'json') as SerializationFormat;
 
 const categoryManager = new CategoryManager(MEMORY_BASE_DIR);
 const knowledgeGraphManager = new KnowledgeGraphManager(categoryManager, DEFAULT_CATEGORY);
@@ -58,7 +60,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "create_entities",
-        description: "Create multiple new entities in the knowledge graph",
+        description: "Create multiple new entities in the knowledge graph. Output format controlled by SERIALIZATION_FORMAT env (json/toon). TOON escaping: \\\\ (backslash), \\\" (quote), \\n (newline), \\r (carriage return), \\t (tab)",
         inputSchema: {
           type: "object",
           properties: {
@@ -99,7 +101,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_relations",
-        description: "Create multiple new relations between entities in the knowledge graph. Relations should be in active voice",
+        description: "Create multiple new relations between entities in the knowledge graph. Relations should be in active voice. Output format controlled by SERIALIZATION_FORMAT env (json/toon). TOON escaping: \\\\ (backslash), \\\" (quote), \\n (newline), \\r (carriage return), \\t (tab)",
         inputSchema: {
           type: "object",
           properties: {
@@ -129,7 +131,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "add_observations",
-        description: "Add new observations to existing entities in the knowledge graph",
+        description: "Add new observations to existing entities in the knowledge graph. Output format controlled by SERIALIZATION_FORMAT env (json/toon). TOON escaping: \\\\ (backslash), \\\" (quote), \\n (newline), \\r (carriage return), \\t (tab)",
         inputSchema: {
           type: "object",
           properties: {
@@ -270,7 +272,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "read_graph",
-        description: "Read the entire knowledge graph from a category",
+        description: "Read the entire knowledge graph from a category. Output format controlled by SERIALIZATION_FORMAT env (json/toon). TOON escaping: \\\\ (backslash), \\\" (quote), \\n (newline), \\r (carriage return), \\t (tab)",
         inputSchema: {
           type: "object",
           properties: {
@@ -284,7 +286,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "search_nodes",
-        description: "Search for nodes in the knowledge graph based on a query",
+        description: "Search for nodes in the knowledge graph based on a query. Output format controlled by SERIALIZATION_FORMAT env (json/toon). TOON escaping: \\\\ (backslash), \\\" (quote), \\n (newline), \\r (carriage return), \\t (tab)",
         inputSchema: {
           type: "object",
           properties: {
@@ -300,7 +302,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "open_nodes",
-        description: "Open specific nodes in the knowledge graph by their names and types",
+        description: "Open specific nodes in the knowledge graph by their names and types. Output format controlled by SERIALIZATION_FORMAT env (json/toon). TOON escaping: \\\\ (backslash), \\\" (quote), \\n (newline), \\r (carriage return), \\t (tab)",
         inputSchema: {
           type: "object",
           properties: {
@@ -328,7 +330,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "list_categories",
-        description: "List all available memory categories",
+        description: "List all available memory categories. Output format controlled by SERIALIZATION_FORMAT env (json/toon)",
         inputSchema: {
           type: "object",
           properties: {},
@@ -367,13 +369,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.createEntities(
                 entitiesWithDefaults,
                 args?.category as string | undefined
               ),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -387,13 +388,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.createRelations(
                 relationsWithDefaults,
                 args?.category as string | undefined
               ),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -406,13 +406,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.addObservations(
                 observationsWithDefaults,
                 args?.category as string | undefined
               ),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -455,10 +454,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.readGraph(args?.category as string | undefined),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -467,13 +465,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.searchNodes(
                 args?.query as string,
                 args?.category as string | undefined
               ),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -486,13 +483,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.openNodes(
                 openNodesWithDefaults,
                 args?.category as string | undefined
               ),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -501,10 +497,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(
+            text: serialize(
               await knowledgeGraphManager.listCategories(),
-              null,
-              2
+              SERIALIZATION_FORMAT
             )
           }]
         };
@@ -524,7 +519,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return {
       content: [{
         type: "text",
-        text: JSON.stringify({ error: errorMessage }, null, 2)
+        text: serialize({ error: errorMessage }, SERIALIZATION_FORMAT)
       }],
       isError: true,
     };
@@ -535,6 +530,7 @@ async function main() {
   console.error(`Multi-Memory MCP Server starting...`);
   console.error(`Memory base directory: ${MEMORY_BASE_DIR}`);
   console.error(`Default category: ${DEFAULT_CATEGORY}`);
+  console.error(`Serialization format: ${SERIALIZATION_FORMAT}`);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
