@@ -30,7 +30,7 @@ import { fileURLToPath } from 'url';
 import { CategoryManager } from './managers/CategoryManager.js';
 import { KnowledgeGraphManager } from './managers/KnowledgeGraphManager.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MEMORY_BASE_DIR = process.env.MEMORY_BASE_DIR || path.join(__dirname, '..', '.memory');
+const MEMORY_BASE_DIR = process.env.MEMORY_BASE_DIR || process.cwd();
 const DEFAULT_CATEGORY = process.env.DEFAULT_CATEGORY || 'default';
 const categoryManager = new CategoryManager(MEMORY_BASE_DIR);
 const knowledgeGraphManager = new KnowledgeGraphManager(categoryManager, DEFAULT_CATEGORY);
