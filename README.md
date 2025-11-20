@@ -110,6 +110,46 @@ Add to Claude Desktop config:
 
 - `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `.aim` in current working directory)
 - `DEFAULT_CATEGORY`: Default category when none specified (default: `"default"`)
+- `SERIALIZATION_FORMAT`: Output format for tool responses (default: `"json"`)
+  - `json` - Standard JSON with 2-space indentation
+  - `toon` - TOON (Token-Oriented Object Notation) - compact format optimized for LLMs with 30-60% fewer tokens
+
+### TOON Format
+
+When `SERIALIZATION_FORMAT=toon`, responses use TOON format which is more token-efficient for LLM contexts.
+
+**Structure:**
+- Objects: `key: value` with 2-space indentation for nesting
+- Arrays: `name[count]{field1,field2}:` followed by comma-separated rows
+- Primitives: unquoted unless containing special characters
+
+**Escaping rules** (only these escape sequences are valid):
+- `\\` - backslash
+- `\"` - double quote
+- `\n` - newline
+- `\r` - carriage return
+- `\t` - tab
+
+**Quoting required when:** empty string, leading/trailing spaces, matches `true`/`false`/`null`, numeric, or contains `: " \ [ ] { } ,`
+
+**Example JSON vs TOON:**
+
+JSON (standard):
+```json
+{
+  "entities": [
+    {"name": "AuthService", "entityType": "module", "observations": []}
+  ]
+}
+```
+
+TOON (compact):
+```
+entities[1]{name,entityType,observations}:
+  AuthService,module,[]
+```
+
+See [TOON specification](https://github.com/toon-format/spec) for full format details.
 
 ## Core Concepts
 
