@@ -38,7 +38,7 @@ import type { Entity, Relation, Observation } from './types/graph.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const MEMORY_BASE_DIR = process.env.MEMORY_BASE_DIR || process.cwd();
+const MEMORY_BASE_DIR = process.env.MEMORY_BASE_DIR || path.join(process.cwd(), '.aim');
 const DEFAULT_CATEGORY = process.env.DEFAULT_CATEGORY || 'default';
 
 const categoryManager = new CategoryManager(MEMORY_BASE_DIR);
