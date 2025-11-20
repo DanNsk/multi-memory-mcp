@@ -113,10 +113,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   from: { type: "string", description: "The name of the entity where the relation starts" },
+                  fromType: { type: "string", description: "The type of the from entity" },
                   to: { type: "string", description: "The name of the entity where the relation ends" },
+                  toType: { type: "string", description: "The type of the to entity" },
                   relationType: { type: "string", description: "The type of the relation" },
                 },
-                required: ["from", "to", "relationType"],
+                required: ["from", "fromType", "to", "toType", "relationType"],
                 additionalProperties: false,
               },
             },
@@ -141,6 +143,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   entityName: { type: "string", description: "The name of the entity to add the observations to" },
+                  entityType: { type: "string", description: "The type of the entity" },
                   contents: {
                     type: "array",
                     items: {
@@ -156,7 +159,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     description: "An array of observations to add"
                   },
                 },
-                required: ["entityName", "contents"],
+                required: ["entityName", "entityType", "contents"],
                 additionalProperties: false,
               },
             },
@@ -175,13 +178,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Memory category (e.g., 'work', 'personal', 'project-alpha'). Defaults to 'default'",
             },
-            entityNames: {
+            entities: {
               type: "array",
-              items: { type: "string" },
-              description: "An array of entity names to delete"
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "The name of the entity to delete" },
+                  entityType: { type: "string", description: "The type of the entity" },
+                },
+                required: ["name", "entityType"],
+                additionalProperties: false,
+              },
+              description: "An array of entities to delete"
             },
           },
-          required: ["entityNames"],
+          required: ["entities"],
           additionalProperties: false,
         },
       },
@@ -201,6 +212,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   entityName: { type: "string", description: "The name of the entity containing the observations" },
+                  entityType: { type: "string", description: "The type of the entity" },
                   observations: {
                     type: "array",
                     items: {
@@ -216,7 +228,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     description: "An array of observations to delete (matched by text content)"
                   },
                 },
-                required: ["entityName", "observations"],
+                required: ["entityName", "entityType", "observations"],
                 additionalProperties: false,
               },
             },
@@ -241,10 +253,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   from: { type: "string", description: "The name of the entity where the relation starts" },
+                  fromType: { type: "string", description: "The type of the from entity" },
                   to: { type: "string", description: "The name of the entity where the relation ends" },
+                  toType: { type: "string", description: "The type of the to entity" },
                   relationType: { type: "string", description: "The type of the relation" },
                 },
-                required: ["from", "to", "relationType"],
+                required: ["from", "fromType", "to", "toType", "relationType"],
                 additionalProperties: false,
               },
               description: "An array of relations to delete"
@@ -286,7 +300,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "open_nodes",
-        description: "Open specific nodes in the knowledge graph by their names",
+        description: "Open specific nodes in the knowledge graph by their names and types",
         inputSchema: {
           type: "object",
           properties: {
@@ -294,13 +308,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Memory category (e.g., 'work', 'personal', 'project-alpha'). Defaults to 'default'",
             },
-            names: {
+            entities: {
               type: "array",
-              items: { type: "string" },
-              description: "An array of entity names to retrieve",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "The name of the entity" },
+                  entityType: { type: "string", description: "The type of the entity" },
+                },
+                required: ["name", "entityType"],
+                additionalProperties: false,
+              },
+              description: "An array of entities to retrieve",
             },
           },
-          required: ["names"],
+          required: ["entities"],
           additionalProperties: false,
         },
       },
@@ -373,7 +395,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.addObservations(
-                args?.observations as { entityName: string; contents: Observation[] }[],
+                args?.observations as { entityName: string; entityType: string; contents: Observation[] }[],
                 args?.category as string | undefined
               ),
               null,
@@ -384,14 +406,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "delete_entities":
         await knowledgeGraphManager.deleteEntities(
-          args?.entityNames as string[],
+          args?.entities as { name: string; entityType: string }[],
           args?.category as string | undefined
         );
         return { content: [{ type: "text", text: "Entities deleted successfully" }] };
 
       case "delete_observations":
         await knowledgeGraphManager.deleteObservations(
-          args?.deletions as { entityName: string; observations: Observation[] }[],
+          args?.deletions as { entityName: string; entityType: string; observations: Observation[] }[],
           args?.category as string | undefined
         );
         return { content: [{ type: "text", text: "Observations deleted successfully" }] };
@@ -436,7 +458,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.openNodes(
-                args?.names as string[],
+                args?.entities as { name: string; entityType: string }[],
                 args?.category as string | undefined
               ),
               null,

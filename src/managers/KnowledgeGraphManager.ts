@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import type { Entity, Relation, KnowledgeGraph, Observation } from '../types/graph.js';
+import type { Entity, Relation, KnowledgeGraph, Observation, EntityReference } from '../types/graph.js';
 import { CategoryManager } from './CategoryManager.js';
 
 export class KnowledgeGraphManager {
@@ -44,22 +44,22 @@ export class KnowledgeGraphManager {
   }
 
   async addObservations(
-    observations: { entityName: string; contents: Observation[] }[],
+    observations: { entityName: string; entityType: string; contents: Observation[] }[],
     category?: string
-  ): Promise<{ entityName: string; addedObservations: Observation[] }[]> {
+  ): Promise<{ entityName: string; entityType: string; addedObservations: Observation[] }[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
     return storage.addObservations(observations);
   }
 
-  async deleteEntities(entityNames: string[], category?: string): Promise<void> {
+  async deleteEntities(entities: EntityReference[], category?: string): Promise<void> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
-    return storage.deleteEntities(entityNames);
+    return storage.deleteEntities(entities);
   }
 
   async deleteObservations(
-    deletions: { entityName: string; observations: Observation[] }[],
+    deletions: { entityName: string; entityType: string; observations: Observation[] }[],
     category?: string
   ): Promise<void> {
     const cat = category || this.defaultCategory;
@@ -85,10 +85,10 @@ export class KnowledgeGraphManager {
     return storage.searchNodes(query);
   }
 
-  async openNodes(names: string[], category?: string): Promise<KnowledgeGraph> {
+  async openNodes(entities: EntityReference[], category?: string): Promise<KnowledgeGraph> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
-    return storage.openNodes(names);
+    return storage.openNodes(entities);
   }
 
   async listCategories(): Promise<string[]> {

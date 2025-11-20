@@ -171,7 +171,9 @@ describe('KnowledgeGraphManager', () => {
     it('should create relations in specified category', async () => {
       const relations: Relation[] = [{
         from: 'Entity1',
+        fromType: 'type1',
         to: 'Entity2',
+        toType: 'type2',
         relationType: 'depends_on'
       }];
 
@@ -194,11 +196,11 @@ describe('KnowledgeGraphManager', () => {
       ], 'cat2');
 
       await kgManager.createRelations([
-        { from: 'Entity1', to: 'Entity2', relationType: 'rel1' }
+        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' }
       ], 'test');
 
       await kgManager.createRelations([
-        { from: 'A', to: 'B', relationType: 'rel2' }
+        { from: 'A', fromType: 't', to: 'B', toType: 't', relationType: 'rel2' }
       ], 'cat1');
 
       const testGraph = await kgManager.readGraph('test');
@@ -210,7 +212,7 @@ describe('KnowledgeGraphManager', () => {
 
     it('should delete relations in specified category only', async () => {
       await kgManager.createRelations([
-        { from: 'Entity1', to: 'Entity2', relationType: 'rel1' }
+        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' }
       ], 'test');
 
       await kgManager.createEntities([
@@ -219,11 +221,11 @@ describe('KnowledgeGraphManager', () => {
       ], 'other');
 
       await kgManager.createRelations([
-        { from: 'X', to: 'Y', relationType: 'rel1' }
+        { from: 'X', fromType: 't', to: 'Y', toType: 't', relationType: 'rel1' }
       ], 'other');
 
       await kgManager.deleteRelations([
-        { from: 'Entity1', to: 'Entity2', relationType: 'rel1' }
+        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' }
       ], 'test');
 
       const testGraph = await kgManager.readGraph('test');
@@ -246,6 +248,7 @@ describe('KnowledgeGraphManager', () => {
     it('should add observations in specified category', async () => {
       const result = await kgManager.addObservations([{
         entityName: 'TestEntity',
+        entityType: 'test',
         contents: [{ text: 'new obs' }]
       }], 'test');
 
@@ -264,6 +267,7 @@ describe('KnowledgeGraphManager', () => {
 
       await kgManager.addObservations([{
         entityName: 'TestEntity',
+        entityType: 'test',
         contents: [{ text: 'test obs' }]
       }], 'test');
 
@@ -277,6 +281,7 @@ describe('KnowledgeGraphManager', () => {
     it('should delete observations from specified category only', async () => {
       await kgManager.deleteObservations([{
         entityName: 'TestEntity',
+        entityType: 'test',
         observations: [{ text: 'initial' }]
       }], 'test');
 
@@ -293,7 +298,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'test');
 
       await kgManager.createRelations([
-        { from: 'Entity1', to: 'Entity2', relationType: 'rel' }
+        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel' }
       ], 'test');
     });
 
@@ -302,7 +307,7 @@ describe('KnowledgeGraphManager', () => {
         { name: 'Entity1', entityType: 'type', observations: [] }
       ], 'other');
 
-      await kgManager.deleteEntities(['Entity1'], 'test');
+      await kgManager.deleteEntities([{ name: 'Entity1', entityType: 'type1' }], 'test');
 
       const testGraph = await kgManager.readGraph('test');
       const otherGraph = await kgManager.readGraph('other');
@@ -312,7 +317,7 @@ describe('KnowledgeGraphManager', () => {
     });
 
     it('should cascade delete relations in specified category', async () => {
-      await kgManager.deleteEntities(['Entity1'], 'test');
+      await kgManager.deleteEntities([{ name: 'Entity1', entityType: 'type1' }], 'test');
 
       const graph = await kgManager.readGraph('test');
       expect(graph.relations).toHaveLength(0);
@@ -367,14 +372,20 @@ describe('KnowledgeGraphManager', () => {
     });
 
     it('should open nodes from specified category', async () => {
-      const result = await kgManager.openNodes(['E1', 'E2'], 'cat1');
+      const result = await kgManager.openNodes([
+        { name: 'E1', entityType: 't1' },
+        { name: 'E2', entityType: 't2' }
+      ], 'cat1');
 
       expect(result.entities).toHaveLength(2);
       expect(result.entities.map(e => e.name).sort()).toEqual(['E1', 'E2']);
     });
 
     it('should not return nodes from other categories', async () => {
-      const result = await kgManager.openNodes(['E1', 'E2'], 'cat2');
+      const result = await kgManager.openNodes([
+        { name: 'E1', entityType: 't3' },
+        { name: 'E2', entityType: 't2' }
+      ], 'cat2');
 
       expect(result.entities).toHaveLength(1);
       expect(result.entities[0].name).toBe('E1');
@@ -445,7 +456,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'project1');
 
       await kgManager.createRelations([
-        { from: 'ModuleA', to: 'ModuleB', relationType: 'depends_on' }
+        { from: 'ModuleA', fromType: 'module', to: 'ModuleB', toType: 'module', relationType: 'depends_on' }
       ], 'project1');
 
       await kgManager.createEntities([
@@ -454,7 +465,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'project2');
 
       await kgManager.createRelations([
-        { from: 'ServiceX', to: 'ServiceY', relationType: 'calls' }
+        { from: 'ServiceX', fromType: 'service', to: 'ServiceY', toType: 'service', relationType: 'calls' }
       ], 'project2');
 
       const project1 = await kgManager.readGraph('project1');
@@ -477,7 +488,8 @@ describe('KnowledgeGraphManager', () => {
     it('should handle errors when adding observations to non-existent entity', async () => {
       await expect(kgManager.addObservations([{
         entityName: 'NonExistent',
-        contents: ['obs']
+        entityType: 'test',
+        contents: [{ text: 'obs' }]
       }], 'test')).rejects.toThrow();
     });
   });
@@ -529,11 +541,12 @@ describe('KnowledgeGraphManager', () => {
 
       await kgManager.addObservations([{
         entityName: 'E1',
+        entityType: 't',
         contents: [{ text: 'obs2' }, { text: 'obs3' }]
       }], 'test');
 
       await kgManager.createRelations([
-        { from: 'E1', to: 'E1', relationType: 'self-ref' }
+        { from: 'E1', fromType: 't', to: 'E1', toType: 't', relationType: 'self-ref' }
       ], 'test');
 
       const graph = await kgManager.readGraph('test');

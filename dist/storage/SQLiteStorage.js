@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 import Database from 'better-sqlite3';
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
 export class SQLiteStorage {
     db;
     constructor(dbPath) {
@@ -39,10 +39,11 @@ export class SQLiteStorage {
 
       CREATE TABLE IF NOT EXISTS entities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
         entity_type TEXT NOT NULL,
         created_at INTEGER DEFAULT (unixepoch()),
-        updated_at INTEGER DEFAULT (unixepoch())
+        updated_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(name, entity_type)
       );
 
       CREATE TABLE IF NOT EXISTS observations (
@@ -58,21 +59,21 @@ export class SQLiteStorage {
       CREATE TABLE IF NOT EXISTS relations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         from_entity TEXT NOT NULL,
+        from_type TEXT NOT NULL,
         to_entity TEXT NOT NULL,
+        to_type TEXT NOT NULL,
         relation_type TEXT NOT NULL,
         created_at INTEGER DEFAULT (unixepoch()),
-        UNIQUE(from_entity, to_entity, relation_type),
-        FOREIGN KEY (from_entity) REFERENCES entities(name) ON DELETE CASCADE,
-        FOREIGN KEY (to_entity) REFERENCES entities(name) ON DELETE CASCADE
+        UNIQUE(from_entity, from_type, to_entity, to_type, relation_type)
       );
 
       CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
       CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
+      CREATE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type);
       CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
-      CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity);
-      CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity);
+      CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity, from_type);
+      CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity, to_type);
       CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
-      CREATE INDEX IF NOT EXISTS idx_relations_to_from ON relations(to_entity, from_entity);
     `);
         this.ensureSchemaVersion();
     }
@@ -102,6 +103,69 @@ export class SQLiteStorage {
       `);
             this.db.prepare('UPDATE schema_version SET version = ?').run(2);
             console.log('Migration to version 2 complete: Added timestamp and source columns to observations');
+            fromVersion = 2;
+        }
+        if (fromVersion === 2 && toVersion >= 3) {
+            // Migrate to composite unique key (name, entity_type) for entities
+            // and add from_type/to_type columns to relations
+            this.db.exec(`
+        -- Create new entities table with composite unique key
+        CREATE TABLE entities_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          created_at INTEGER DEFAULT (unixepoch()),
+          updated_at INTEGER DEFAULT (unixepoch()),
+          UNIQUE(name, entity_type)
+        );
+
+        -- Copy data from old entities table
+        INSERT INTO entities_new (id, name, entity_type, created_at, updated_at)
+        SELECT id, name, entity_type, created_at, updated_at FROM entities;
+
+        -- Drop old table and rename new one
+        DROP TABLE entities;
+        ALTER TABLE entities_new RENAME TO entities;
+
+        -- Create new relations table with from_type and to_type
+        CREATE TABLE relations_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          from_entity TEXT NOT NULL,
+          from_type TEXT NOT NULL,
+          to_entity TEXT NOT NULL,
+          to_type TEXT NOT NULL,
+          relation_type TEXT NOT NULL,
+          created_at INTEGER DEFAULT (unixepoch()),
+          UNIQUE(from_entity, from_type, to_entity, to_type, relation_type)
+        );
+
+        -- Migrate relations data, looking up entity types
+        INSERT INTO relations_new (from_entity, from_type, to_entity, to_type, relation_type, created_at)
+        SELECT
+          r.from_entity,
+          COALESCE(e1.entity_type, 'unknown'),
+          r.to_entity,
+          COALESCE(e2.entity_type, 'unknown'),
+          r.relation_type,
+          r.created_at
+        FROM relations r
+        LEFT JOIN entities e1 ON r.from_entity = e1.name
+        LEFT JOIN entities e2 ON r.to_entity = e2.name;
+
+        -- Drop old relations table and rename new one
+        DROP TABLE relations;
+        ALTER TABLE relations_new RENAME TO relations;
+
+        -- Recreate indexes
+        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+        CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
+        CREATE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type);
+        CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity, from_type);
+        CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity, to_type);
+        CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
+      `);
+            this.db.prepare('UPDATE schema_version SET version = ?').run(3);
+            console.log('Migration to version 3 complete: Added composite unique key for entities and entity types for relations');
         }
     }
     async loadGraph() {
@@ -123,12 +187,14 @@ export class SQLiteStorage {
             });
         }
         const relationRows = this.db
-            .prepare('SELECT from_entity, to_entity, relation_type FROM relations')
+            .prepare('SELECT from_entity, from_type, to_entity, to_type, relation_type FROM relations')
             .all();
         for (const row of relationRows) {
             relations.push({
                 from: row.from_entity,
+                fromType: row.from_type,
                 to: row.to_entity,
+                toType: row.to_type,
                 relationType: row.relation_type,
             });
         }
@@ -137,13 +203,13 @@ export class SQLiteStorage {
     async createEntities(entities) {
         const insertEntity = this.db.prepare('INSERT OR IGNORE INTO entities (name, entity_type) VALUES (?, ?)');
         const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)');
-        const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ?');
+        const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ? AND entity_type = ?');
         const newEntities = [];
         const transaction = this.db.transaction((entitiesToCreate) => {
             for (const entity of entitiesToCreate) {
                 const result = insertEntity.run(entity.name, entity.entityType);
                 if (result.changes > 0) {
-                    const entityId = getEntityId.get(entity.name).id;
+                    const entityId = getEntityId.get(entity.name, entity.entityType).id;
                     for (const observation of entity.observations) {
                         const timestamp = observation.timestamp || new Date().toISOString();
                         insertObservation.run(entityId, observation.text, timestamp, observation.source || null);
@@ -156,11 +222,11 @@ export class SQLiteStorage {
         return newEntities;
     }
     async createRelations(relations) {
-        const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity, to_entity, relation_type) VALUES (?, ?, ?)');
+        const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity, from_type, to_entity, to_type, relation_type) VALUES (?, ?, ?, ?, ?)');
         const newRelations = [];
         const transaction = this.db.transaction((relationsToCreate) => {
             for (const relation of relationsToCreate) {
-                const result = insertRelation.run(relation.from, relation.to, relation.relationType);
+                const result = insertRelation.run(relation.from, relation.fromType, relation.to, relation.toType, relation.relationType);
                 if (result.changes > 0) {
                     newRelations.push(relation);
                 }
@@ -170,15 +236,15 @@ export class SQLiteStorage {
         return newRelations;
     }
     async addObservations(observations) {
-        const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ?');
+        const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ? AND entity_type = ?');
         const getExistingObservations = this.db.prepare('SELECT content FROM observations WHERE entity_id = ?');
         const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)');
         const results = [];
         const transaction = this.db.transaction((observationsToAdd) => {
             for (const obs of observationsToAdd) {
-                const entityRow = getEntityId.get(obs.entityName);
+                const entityRow = getEntityId.get(obs.entityName, obs.entityType);
                 if (!entityRow) {
-                    throw new Error(`Entity with name ${obs.entityName} not found`);
+                    throw new Error(`Entity with name ${obs.entityName} and type ${obs.entityType} not found`);
                 }
                 const existingObs = getExistingObservations.all(entityRow.id);
                 const existingSet = new Set(existingObs.map(o => o.content));
@@ -194,29 +260,29 @@ export class SQLiteStorage {
                         });
                     }
                 }
-                results.push({ entityName: obs.entityName, addedObservations });
+                results.push({ entityName: obs.entityName, entityType: obs.entityType, addedObservations });
             }
         });
         transaction(observations);
         return results;
     }
-    async deleteEntities(entityNames) {
-        const deleteEntity = this.db.prepare('DELETE FROM entities WHERE name = ?');
-        const deleteRelationsFrom = this.db.prepare('DELETE FROM relations WHERE from_entity = ? OR to_entity = ?');
-        const transaction = this.db.transaction((names) => {
-            for (const name of names) {
-                deleteRelationsFrom.run(name, name);
-                deleteEntity.run(name);
+    async deleteEntities(entities) {
+        const deleteEntity = this.db.prepare('DELETE FROM entities WHERE name = ? AND entity_type = ?');
+        const deleteRelations = this.db.prepare('DELETE FROM relations WHERE (from_entity = ? AND from_type = ?) OR (to_entity = ? AND to_type = ?)');
+        const transaction = this.db.transaction((entitiesToDelete) => {
+            for (const entity of entitiesToDelete) {
+                deleteRelations.run(entity.name, entity.entityType, entity.name, entity.entityType);
+                deleteEntity.run(entity.name, entity.entityType);
             }
         });
-        transaction(entityNames);
+        transaction(entities);
     }
     async deleteObservations(deletions) {
-        const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ?');
+        const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ? AND entity_type = ?');
         const deleteObservation = this.db.prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?');
         const transaction = this.db.transaction((deletionsToProcess) => {
             for (const deletion of deletionsToProcess) {
-                const entityRow = getEntityId.get(deletion.entityName);
+                const entityRow = getEntityId.get(deletion.entityName, deletion.entityType);
                 if (entityRow) {
                     for (const observation of deletion.observations) {
                         deleteObservation.run(entityRow.id, observation.text);
@@ -227,10 +293,10 @@ export class SQLiteStorage {
         transaction(deletions);
     }
     async deleteRelations(relations) {
-        const deleteRelation = this.db.prepare('DELETE FROM relations WHERE from_entity = ? AND to_entity = ? AND relation_type = ?');
+        const deleteRelation = this.db.prepare('DELETE FROM relations WHERE from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ? AND relation_type = ?');
         const transaction = this.db.transaction((relationsToDelete) => {
             for (const relation of relationsToDelete) {
-                deleteRelation.run(relation.from, relation.to, relation.relationType);
+                deleteRelation.run(relation.from, relation.fromType, relation.to, relation.toType, relation.relationType);
             }
         });
         transaction(relations);
@@ -263,35 +329,48 @@ export class SQLiteStorage {
                 })),
             });
         }
-        const entityNames = new Set(entities.map(e => e.name));
-        if (entityNames.size > 0) {
-            const namePlaceholders = Array.from(entityNames).map(() => '?').join(',');
-            const nameArray = Array.from(entityNames);
+        // Build set of (name, type) pairs for matching relations
+        const entityKeys = new Set(entities.map(e => `${e.name}:${e.entityType}`));
+        if (entities.length > 0) {
+            // Build conditions for matching entities
+            const conditions = [];
+            const params = [];
+            for (const entity of entities) {
+                conditions.push('(from_entity = ? AND from_type = ?)');
+                conditions.push('(to_entity = ? AND to_type = ?)');
+                params.push(entity.name, entity.entityType, entity.name, entity.entityType);
+            }
             const relationRows = this.db
-                .prepare(`SELECT from_entity, to_entity, relation_type
+                .prepare(`SELECT from_entity, from_type, to_entity, to_type, relation_type
            FROM relations
-           WHERE from_entity IN (${namePlaceholders})
-              OR to_entity IN (${namePlaceholders})`)
-                .all(...nameArray, ...nameArray);
+           WHERE ${conditions.join(' OR ')}`)
+                .all(...params);
             for (const row of relationRows) {
                 relations.push({
                     from: row.from_entity,
+                    fromType: row.from_type,
                     to: row.to_entity,
+                    toType: row.to_type,
                     relationType: row.relation_type,
                 });
             }
         }
         return { entities, relations };
     }
-    async openNodes(names) {
-        if (names.length === 0) {
+    async openNodes(entityRefs) {
+        if (entityRefs.length === 0) {
             return { entities: [], relations: [] };
         }
-        const placeholders = names.map(() => '?').join(',');
         const entities = [];
+        // Build conditions for matching entities by (name, type) pairs
+        const conditions = entityRefs.map(() => '(name = ? AND entity_type = ?)').join(' OR ');
+        const params = [];
+        for (const ref of entityRefs) {
+            params.push(ref.name, ref.entityType);
+        }
         const entityRows = this.db
-            .prepare(`SELECT id, name, entity_type FROM entities WHERE name IN (${placeholders})`)
-            .all(...names);
+            .prepare(`SELECT id, name, entity_type FROM entities WHERE ${conditions}`)
+            .all(...params);
         for (const row of entityRows) {
             const observations = this.db
                 .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
@@ -306,19 +385,29 @@ export class SQLiteStorage {
                 })),
             });
         }
-        const entityNames = new Set(entities.map(e => e.name));
+        const entityKeys = new Set(entities.map(e => `${e.name}:${e.entityType}`));
         const relations = [];
-        if (entityNames.size > 0) {
-            const relationRows = this.db
-                .prepare(`SELECT from_entity, to_entity, relation_type
-           FROM relations
-           WHERE from_entity IN (${placeholders}) AND to_entity IN (${placeholders})`)
-                .all(...names, ...names);
-            for (const row of relationRows) {
-                if (entityNames.has(row.from_entity) && entityNames.has(row.to_entity)) {
+        if (entities.length > 0) {
+            // Build conditions for matching relations
+            const relationConditions = [];
+            const relationParams = [];
+            for (const entity of entities) {
+                relationConditions.push('(from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ?)');
+            }
+            // Get all relations between the requested entities
+            const allRelationRows = this.db
+                .prepare(`SELECT from_entity, from_type, to_entity, to_type, relation_type
+           FROM relations`)
+                .all();
+            for (const row of allRelationRows) {
+                const fromKey = `${row.from_entity}:${row.from_type}`;
+                const toKey = `${row.to_entity}:${row.to_type}`;
+                if (entityKeys.has(fromKey) && entityKeys.has(toKey)) {
                     relations.push({
                         from: row.from_entity,
+                        fromType: row.from_type,
                         to: row.to_entity,
+                        toType: row.to_type,
                         relationType: row.relation_type,
                     });
                 }
