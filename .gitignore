@@ -5,6 +5,8 @@ yarn.lock
 
 # Build output
 *.tsbuildinfo
+dist/**/*.map
+dist/**/*.d.ts
 
 # Memory databases
 memory/
