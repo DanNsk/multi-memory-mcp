@@ -39,46 +39,11 @@ This will download, build, and run the server automatically. Perfect for trying 
 
 ### Installation (Local Development)
 
-#### macOS / Linux
-
 ```bash
 git clone https://github.com/DanNsk/multi-memory-mcp
 cd multi-memory-mcp
 bun install
 bun run build
-```
-
-#### Windows
-
-**Prerequisites:**
-- [Bun](https://bun.sh) - Install with: `powershell -c "irm bun.sh/install.ps1 | iex"`
-- [Node.js](https://nodejs.org) (v18+)
-- Windows Build Tools for native modules (better-sqlite3):
-  ```powershell
-  npm install -g windows-build-tools
-  ```
-  Or install Visual Studio Build Tools with C++ workload.
-
-**Build using PowerShell script:**
-```powershell
-git clone https://github.com/DanNsk/multi-memory-mcp
-cd multi-memory-mcp
-.\build.ps1
-```
-
-**Or using npm scripts:**
-```cmd
-git clone https://github.com/DanNsk/multi-memory-mcp
-cd multi-memory-mcp
-bun install
-bun run build:win
-```
-
-**Or using batch file:**
-```cmd
-git clone https://github.com/DanNsk/multi-memory-mcp
-cd multi-memory-mcp
-build.bat
 ```
 
 ### Configuration
@@ -414,19 +379,9 @@ Keep contexts isolated:
 
 ### Build
 
-**macOS / Linux:**
 ```bash
 bun run build      # Compile TypeScript
 bun run watch      # Watch mode
-```
-
-**Windows:**
-```powershell
-bun run build:win  # Compile TypeScript (no chmod)
-bun run watch      # Watch mode
-# Or use the provided scripts:
-.\build.ps1        # PowerShell script
-build.bat          # Batch script
 ```
 
 ### Testing
@@ -496,27 +451,6 @@ CategoryManager implements LRU cache with default 50 connection limit. Oldest co
 ### Schema version mismatch
 
 Database created with different schema version. No automatic migration implemented. Delete old database or manually migrate.
-
-### Windows: Native module compilation errors
-
-If you get errors building `better-sqlite3`, install build tools:
-
-```powershell
-# Option 1: Using npm (requires admin)
-npm install -g windows-build-tools
-
-# Option 2: Install Visual Studio Build Tools
-# Download from https://visualstudio.microsoft.com/visual-cpp-build-tools/
-# Select "Desktop development with C++" workload
-```
-
-### Windows: PowerShell execution policy
-
-If PowerShell scripts are blocked:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
 
 ## License
 
