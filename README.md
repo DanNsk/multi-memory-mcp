@@ -108,7 +108,7 @@ Add to Claude Desktop config:
 
 ### Environment Variables
 
-- `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `./.memory`)
+- `MEMORY_BASE_DIR`: Base directory for all memory categories (default: `.aim` in current working directory)
 - `DEFAULT_CATEGORY`: Default category when none specified (default: `"default"`)
 
 ## Core Concepts
