@@ -16,6 +16,7 @@
   "scripts": {
     "build": "bun run build:tsc && shx chmod +x dist/*.js",
     "build:tsc": "tsc",
+    "build:win": "bun run build:tsc",
     "prepare": "bun run build",
     "watch": "tsc --watch",
     "test": "vitest run --coverage"

@@ -12,7 +12,34 @@ A multi-category knowledge graph memory server using SQLite for persistent stora
 
 ## Quick Start
 
-### Installation
+### Run Directly with bunx (No Installation Required)
+
+The fastest way to use multi-memory-mcp is to run it directly from GitHub using `bunx`:
+
+```bash
+bunx github:DanNsk/multi-memory-mcp
+```
+
+This will download, build, and run the server automatically. Perfect for trying it out or using in Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "multi-memory": {
+      "command": "bunx",
+      "args": ["github:DanNsk/multi-memory-mcp"],
+      "env": {
+        "MEMORY_BASE_DIR": "/path/to/.memory",
+        "DEFAULT_CATEGORY": "default"
+      }
+    }
+  }
+}
+```
+
+### Installation (Local Development)
+
+#### macOS / Linux
 
 ```bash
 git clone https://github.com/DanNsk/multi-memory-mcp
@@ -21,9 +48,66 @@ bun install
 bun run build
 ```
 
+#### Windows
+
+**Prerequisites:**
+- [Bun](https://bun.sh) - Install with: `powershell -c "irm bun.sh/install.ps1 | iex"`
+- [Node.js](https://nodejs.org) (v18+)
+- Windows Build Tools for native modules (better-sqlite3):
+  ```powershell
+  npm install -g windows-build-tools
+  ```
+  Or install Visual Studio Build Tools with C++ workload.
+
+**Build using PowerShell script:**
+```powershell
+git clone https://github.com/DanNsk/multi-memory-mcp
+cd multi-memory-mcp
+.\build.ps1
+```
+
+**Or using npm scripts:**
+```cmd
+git clone https://github.com/DanNsk/multi-memory-mcp
+cd multi-memory-mcp
+bun install
+bun run build:win
+```
+
+**Or using batch file:**
+```cmd
+git clone https://github.com/DanNsk/multi-memory-mcp
+cd multi-memory-mcp
+build.bat
+```
+
 ### Configuration
 
-Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+Add to Claude Desktop config:
+
+**Config file locations:**
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+**Using bunx (recommended):**
+
+```json
+{
+  "mcpServers": {
+    "multi-memory": {
+      "command": "bunx",
+      "args": ["github:DanNsk/multi-memory-mcp"],
+      "env": {
+        "MEMORY_BASE_DIR": "/Users/yourname/.memory",
+        "DEFAULT_CATEGORY": "default"
+      }
+    }
+  }
+}
+```
+
+**Using local installation (macOS/Linux):**
 
 ```json
 {
@@ -33,6 +117,23 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
       "args": ["/absolute/path/to/multi-memory-mcp/dist/index.js"],
       "env": {
         "MEMORY_BASE_DIR": "/Users/yourname/.memory",
+        "DEFAULT_CATEGORY": "default"
+      }
+    }
+  }
+}
+```
+
+**Using local installation (Windows):**
+
+```json
+{
+  "mcpServers": {
+    "multi-memory": {
+      "command": "node",
+      "args": ["C:\\path\\to\\multi-memory-mcp\\dist\\index.js"],
+      "env": {
+        "MEMORY_BASE_DIR": "C:\\Users\\yourname\\.memory",
         "DEFAULT_CATEGORY": "default"
       }
     }
@@ -313,9 +414,19 @@ Keep contexts isolated:
 
 ### Build
 
+**macOS / Linux:**
 ```bash
 bun run build      # Compile TypeScript
 bun run watch      # Watch mode
+```
+
+**Windows:**
+```powershell
+bun run build:win  # Compile TypeScript (no chmod)
+bun run watch      # Watch mode
+# Or use the provided scripts:
+.\build.ps1        # PowerShell script
+build.bat          # Batch script
 ```
 
 ### Testing
@@ -385,6 +496,27 @@ CategoryManager implements LRU cache with default 50 connection limit. Oldest co
 ### Schema version mismatch
 
 Database created with different schema version. No automatic migration implemented. Delete old database or manually migrate.
+
+### Windows: Native module compilation errors
+
+If you get errors building `better-sqlite3`, install build tools:
+
+```powershell
+# Option 1: Using npm (requires admin)
+npm install -g windows-build-tools
+
+# Option 2: Install Visual Studio Build Tools
+# Download from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+# Select "Desktop development with C++" workload
+```
+
+### Windows: PowerShell execution policy
+
+If PowerShell scripts are blocked:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
 
 ## License
 
