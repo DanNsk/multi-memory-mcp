@@ -71,6 +71,8 @@ export class SQLiteStorage {
       CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
       CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity);
       CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity);
+      CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
+      CREATE INDEX IF NOT EXISTS idx_relations_to_from ON relations(to_entity, from_entity);
     `);
         this.ensureSchemaVersion();
     }
