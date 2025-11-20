@@ -72,7 +72,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   name: { type: "string", description: "The name of the entity" },
-                  entityType: { type: "string", description: "The type of the entity" },
+                  entityType: { type: "string", description: "The type of the entity (defaults to empty string)" },
                   observations: {
                     type: "array",
                     items: {
@@ -88,7 +88,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     description: "An array of observations associated with the entity"
                   },
                 },
-                required: ["name", "entityType", "observations"],
+                required: ["name", "observations"],
                 additionalProperties: false,
               },
             },
@@ -113,12 +113,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   from: { type: "string", description: "The name of the entity where the relation starts" },
-                  fromType: { type: "string", description: "The type of the from entity" },
+                  fromType: { type: "string", description: "The type of the from entity (defaults to empty string)" },
                   to: { type: "string", description: "The name of the entity where the relation ends" },
-                  toType: { type: "string", description: "The type of the to entity" },
+                  toType: { type: "string", description: "The type of the to entity (defaults to empty string)" },
                   relationType: { type: "string", description: "The type of the relation" },
                 },
-                required: ["from", "fromType", "to", "toType", "relationType"],
+                required: ["from", "to", "relationType"],
                 additionalProperties: false,
               },
             },
@@ -143,7 +143,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   entityName: { type: "string", description: "The name of the entity to add the observations to" },
-                  entityType: { type: "string", description: "The type of the entity" },
+                  entityType: { type: "string", description: "The type of the entity (defaults to empty string)" },
                   contents: {
                     type: "array",
                     items: {
@@ -159,7 +159,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     description: "An array of observations to add"
                   },
                 },
-                required: ["entityName", "entityType", "contents"],
+                required: ["entityName", "contents"],
                 additionalProperties: false,
               },
             },
@@ -184,9 +184,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   name: { type: "string", description: "The name of the entity to delete" },
-                  entityType: { type: "string", description: "The type of the entity" },
+                  entityType: { type: "string", description: "The type of the entity (defaults to empty string)" },
                 },
-                required: ["name", "entityType"],
+                required: ["name"],
                 additionalProperties: false,
               },
               description: "An array of entities to delete"
@@ -212,7 +212,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   entityName: { type: "string", description: "The name of the entity containing the observations" },
-                  entityType: { type: "string", description: "The type of the entity" },
+                  entityType: { type: "string", description: "The type of the entity (defaults to empty string)" },
                   observations: {
                     type: "array",
                     items: {
@@ -228,7 +228,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     description: "An array of observations to delete (matched by text content)"
                   },
                 },
-                required: ["entityName", "entityType", "observations"],
+                required: ["entityName", "observations"],
                 additionalProperties: false,
               },
             },
@@ -253,12 +253,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   from: { type: "string", description: "The name of the entity where the relation starts" },
-                  fromType: { type: "string", description: "The type of the from entity" },
+                  fromType: { type: "string", description: "The type of the from entity (defaults to empty string)" },
                   to: { type: "string", description: "The name of the entity where the relation ends" },
-                  toType: { type: "string", description: "The type of the to entity" },
+                  toType: { type: "string", description: "The type of the to entity (defaults to empty string)" },
                   relationType: { type: "string", description: "The type of the relation" },
                 },
-                required: ["from", "fromType", "to", "toType", "relationType"],
+                required: ["from", "to", "relationType"],
                 additionalProperties: false,
               },
               description: "An array of relations to delete"
@@ -314,9 +314,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   name: { type: "string", description: "The name of the entity" },
-                  entityType: { type: "string", description: "The type of the entity" },
+                  entityType: { type: "string", description: "The type of the entity (defaults to empty string)" },
                 },
-                required: ["name", "entityType"],
+                required: ["name"],
                 additionalProperties: false,
               },
               description: "An array of entities to retrieve",
@@ -360,12 +360,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "create_entities":
+        const entitiesWithDefaults = (args?.entities as any[])?.map(e => ({
+          ...e,
+          entityType: e.entityType ?? ''
+        })) as Entity[];
         return {
           content: [{
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.createEntities(
-                args?.entities as Entity[],
+                entitiesWithDefaults,
                 args?.category as string | undefined
               ),
               null,
@@ -375,12 +379,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "create_relations":
+        const relationsWithDefaults = (args?.relations as any[])?.map(r => ({
+          ...r,
+          fromType: r.fromType ?? '',
+          toType: r.toType ?? ''
+        })) as Relation[];
         return {
           content: [{
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.createRelations(
-                args?.relations as Relation[],
+                relationsWithDefaults,
                 args?.category as string | undefined
               ),
               null,
@@ -390,12 +399,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "add_observations":
+        const observationsWithDefaults = (args?.observations as any[])?.map(o => ({
+          ...o,
+          entityType: o.entityType ?? ''
+        })) as { entityName: string; entityType: string; contents: Observation[] }[];
         return {
           content: [{
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.addObservations(
-                args?.observations as { entityName: string; entityType: string; contents: Observation[] }[],
+                observationsWithDefaults,
                 args?.category as string | undefined
               ),
               null,
@@ -405,22 +418,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "delete_entities":
+        const deleteEntitiesWithDefaults = (args?.entities as any[])?.map(e => ({
+          ...e,
+          entityType: e.entityType ?? ''
+        })) as { name: string; entityType: string }[];
         await knowledgeGraphManager.deleteEntities(
-          args?.entities as { name: string; entityType: string }[],
+          deleteEntitiesWithDefaults,
           args?.category as string | undefined
         );
         return { content: [{ type: "text", text: "Entities deleted successfully" }] };
 
       case "delete_observations":
+        const deletionsWithDefaults = (args?.deletions as any[])?.map(d => ({
+          ...d,
+          entityType: d.entityType ?? ''
+        })) as { entityName: string; entityType: string; observations: Observation[] }[];
         await knowledgeGraphManager.deleteObservations(
-          args?.deletions as { entityName: string; entityType: string; observations: Observation[] }[],
+          deletionsWithDefaults,
           args?.category as string | undefined
         );
         return { content: [{ type: "text", text: "Observations deleted successfully" }] };
 
       case "delete_relations":
+        const deleteRelationsWithDefaults = (args?.relations as any[])?.map(r => ({
+          ...r,
+          fromType: r.fromType ?? '',
+          toType: r.toType ?? ''
+        })) as Relation[];
         await knowledgeGraphManager.deleteRelations(
-          args?.relations as Relation[],
+          deleteRelationsWithDefaults,
           args?.category as string | undefined
         );
         return { content: [{ type: "text", text: "Relations deleted successfully" }] };
@@ -453,12 +479,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
       case "open_nodes":
+        const openNodesWithDefaults = (args?.entities as any[])?.map(e => ({
+          ...e,
+          entityType: e.entityType ?? ''
+        })) as { name: string; entityType: string }[];
         return {
           content: [{
             type: "text",
             text: JSON.stringify(
               await knowledgeGraphManager.openNodes(
-                args?.entities as { name: string; entityType: string }[],
+                openNodesWithDefaults,
                 args?.category as string | undefined
               ),
               null,

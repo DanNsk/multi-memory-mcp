@@ -223,9 +223,19 @@ export class SQLiteStorage {
     }
     async createRelations(relations) {
         const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity, from_type, to_entity, to_type, relation_type) VALUES (?, ?, ?, ?, ?)');
+        const checkEntityExists = this.db.prepare('SELECT 1 FROM entities WHERE name = ? AND entity_type = ?');
         const newRelations = [];
         const transaction = this.db.transaction((relationsToCreate) => {
             for (const relation of relationsToCreate) {
+                // Verify both entities exist
+                const fromExists = checkEntityExists.get(relation.from, relation.fromType);
+                if (!fromExists) {
+                    throw new Error(`Entity '${relation.from}' with type '${relation.fromType}' not found`);
+                }
+                const toExists = checkEntityExists.get(relation.to, relation.toType);
+                if (!toExists) {
+                    throw new Error(`Entity '${relation.to}' with type '${relation.toType}' not found`);
+                }
                 const result = insertRelation.run(relation.from, relation.fromType, relation.to, relation.toType, relation.relationType);
                 if (result.changes > 0) {
                     newRelations.push(relation);
