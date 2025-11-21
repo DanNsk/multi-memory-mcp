@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build output
+*.tsbuildinfo
+dist/**/*.map
+dist/**/*.d.ts
+
+# Memory databases
+memory/
+.memory/
+*.db
+*.db-shm
+*.db-wal
+memory.jsonl
+memory.jsonl.backup
+memory.json
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+coverage/
+.nyc_output/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
