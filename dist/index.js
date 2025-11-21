@@ -235,7 +235,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "delete_relations",
-                description: "Delete relations. Specify by relation id OR by full composite key (from/fromType/to/toType/relationType).",
+                description: "Delete relations. Specify by relation id OR by entity IDs (fromId/toId/relationType) OR by entity names (from/fromType/to/toType/relationType).",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -248,10 +248,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                             items: {
                                 type: "object",
                                 properties: {
-                                    id: { type: "string", description: "Relation ID (alternative to composite key)" },
-                                    from: { type: "string", description: "Source entity name" },
+                                    id: { type: "string", description: "Relation ID (alternative to other methods)" },
+                                    fromId: { type: "string", description: "Source entity ID (alternative to from/fromType)" },
+                                    toId: { type: "string", description: "Target entity ID (alternative to to/toType)" },
+                                    from: { type: "string", description: "Source entity name (use with fromType)" },
                                     fromType: { type: "string", description: "Source entity type (defaults to empty string)" },
-                                    to: { type: "string", description: "Target entity name" },
+                                    to: { type: "string", description: "Target entity name (use with toType)" },
                                     toType: { type: "string", description: "Target entity type (defaults to empty string)" },
                                     relationType: { type: "string", description: "Relation type" },
                                 },
@@ -419,9 +421,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case "delete_relations":
                 const deleteRelationsInput = args?.relations?.map(r => ({
                     id: r.id,
-                    from: r.from,
+                    fromId: r.fromId,
+                    toId: r.toId,
+                    fromName: r.from,
                     fromType: r.fromType ?? '',
-                    to: r.to,
+                    toName: r.to,
                     toType: r.toType ?? '',
                     relationType: r.relationType
                 }));

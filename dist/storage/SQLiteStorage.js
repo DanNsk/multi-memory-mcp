@@ -27,6 +27,7 @@ export class SQLiteStorage {
     constructor(dbPath) {
         this.db = new Database(dbPath);
         this.db.pragma('journal_mode = WAL');
+        this.db.pragma('foreign_keys = ON');
         this.initializeSchema();
     }
     initializeSchema() {
@@ -52,21 +53,21 @@ export class SQLiteStorage {
 
       CREATE TABLE IF NOT EXISTS relations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        from_entity TEXT NOT NULL,
-        from_type TEXT NOT NULL,
-        to_entity TEXT NOT NULL,
-        to_type TEXT NOT NULL,
+        from_entity_id INTEGER NOT NULL,
+        to_entity_id INTEGER NOT NULL,
         relation_type TEXT NOT NULL,
         created_at INTEGER DEFAULT (unixepoch()),
-        UNIQUE(from_entity, from_type, to_entity, to_type, relation_type)
+        FOREIGN KEY (from_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+        FOREIGN KEY (to_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+        UNIQUE(from_entity_id, to_entity_id, relation_type)
       );
 
       CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
       CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
       CREATE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type);
       CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
-      CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity, from_type);
-      CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity, to_type);
+      CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
+      CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
       CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
     `);
     }
@@ -86,6 +87,14 @@ export class SQLiteStorage {
             if (row) {
                 return { id: row.id, name: row.name, entityType: row.entity_type };
             }
+        }
+        return null;
+    }
+    // Helper to get entity by ID
+    getEntityById(id) {
+        const row = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE id = ?').get(id);
+        if (row) {
+            return { id: row.id, name: row.name, entityType: row.entity_type };
         }
         return null;
     }
@@ -110,16 +119,20 @@ export class SQLiteStorage {
             });
         }
         const relationRows = this.db
-            .prepare('SELECT id, from_entity, from_type, to_entity, to_type, relation_type FROM relations')
+            .prepare('SELECT id, from_entity_id, to_entity_id, relation_type FROM relations')
             .all();
         for (const row of relationRows) {
+            const fromEntity = this.getEntityById(row.from_entity_id);
+            const toEntity = this.getEntityById(row.to_entity_id);
             relations.push({
                 id: String(row.id),
-                from: row.from_entity,
-                fromType: row.from_type,
-                to: row.to_entity,
-                toType: row.to_type,
+                fromId: String(row.from_entity_id),
+                toId: String(row.to_entity_id),
                 relationType: row.relation_type,
+                from: fromEntity?.name,
+                fromType: fromEntity?.entityType,
+                to: toEntity?.name,
+                toType: toEntity?.entityType,
             });
         }
         return { entities, relations };
@@ -158,8 +171,8 @@ export class SQLiteStorage {
         return newEntities;
     }
     async createRelations(relations) {
-        const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity, from_type, to_entity, to_type, relation_type) VALUES (?, ?, ?, ?, ?)');
-        const getRelation = this.db.prepare('SELECT id FROM relations WHERE from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ? AND relation_type = ?');
+        const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)');
+        const getRelation = this.db.prepare('SELECT id FROM relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?');
         const newRelations = [];
         const transaction = this.db.transaction((relationsToCreate) => {
             for (const relation of relationsToCreate) {
@@ -175,16 +188,18 @@ export class SQLiteStorage {
                     const identifier = relation.to.id ? `id '${relation.to.id}'` : `name '${relation.to.name}' with type '${relation.to.type || ''}'`;
                     throw new Error(`Entity with ${identifier} not found`);
                 }
-                const result = insertRelation.run(fromEntity.name, fromEntity.entityType, toEntity.name, toEntity.entityType, relation.relationType);
+                const result = insertRelation.run(fromEntity.id, toEntity.id, relation.relationType);
                 if (result.changes > 0) {
-                    const relationRow = getRelation.get(fromEntity.name, fromEntity.entityType, toEntity.name, toEntity.entityType, relation.relationType);
+                    const relationRow = getRelation.get(fromEntity.id, toEntity.id, relation.relationType);
                     newRelations.push({
                         id: String(relationRow.id),
+                        fromId: String(fromEntity.id),
+                        toId: String(toEntity.id),
+                        relationType: relation.relationType,
                         from: fromEntity.name,
                         fromType: fromEntity.entityType,
                         to: toEntity.name,
                         toType: toEntity.entityType,
-                        relationType: relation.relationType,
                     });
                 }
             }
@@ -237,22 +252,12 @@ export class SQLiteStorage {
     async deleteEntities(entities) {
         const deleteEntityById = this.db.prepare('DELETE FROM entities WHERE id = ?');
         const deleteEntityByName = this.db.prepare('DELETE FROM entities WHERE name = ? AND entity_type = ?');
-        const deleteRelationsById = this.db.prepare(`DELETE FROM relations WHERE
-        (from_entity = (SELECT name FROM entities WHERE id = ?) AND from_type = (SELECT entity_type FROM entities WHERE id = ?)) OR
-        (to_entity = (SELECT name FROM entities WHERE id = ?) AND to_type = (SELECT entity_type FROM entities WHERE id = ?))`);
-        const deleteRelationsByName = this.db.prepare('DELETE FROM relations WHERE (from_entity = ? AND from_type = ?) OR (to_entity = ? AND to_type = ?)');
         const transaction = this.db.transaction((entitiesToDelete) => {
             for (const entity of entitiesToDelete) {
                 if (entity.id) {
-                    // First get the entity info for relation deletion
-                    const entityInfo = this.db.prepare('SELECT name, entity_type FROM entities WHERE id = ?').get(entity.id);
-                    if (entityInfo) {
-                        deleteRelationsByName.run(entityInfo.name, entityInfo.entity_type, entityInfo.name, entityInfo.entity_type);
-                    }
                     deleteEntityById.run(entity.id);
                 }
                 else if (entity.name !== undefined) {
-                    deleteRelationsByName.run(entity.name, entity.entityType || '', entity.name, entity.entityType || '');
                     deleteEntityByName.run(entity.name, entity.entityType || '');
                 }
             }
@@ -285,14 +290,41 @@ export class SQLiteStorage {
     }
     async deleteRelations(relations) {
         const deleteRelationById = this.db.prepare('DELETE FROM relations WHERE id = ?');
-        const deleteRelationByComposite = this.db.prepare('DELETE FROM relations WHERE from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ? AND relation_type = ?');
+        const deleteRelationByIds = this.db.prepare('DELETE FROM relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?');
         const transaction = this.db.transaction((relationsToDelete) => {
             for (const relation of relationsToDelete) {
                 if (relation.id) {
                     deleteRelationById.run(relation.id);
                 }
-                else if (relation.from !== undefined && relation.to !== undefined && relation.relationType !== undefined) {
-                    deleteRelationByComposite.run(relation.from, relation.fromType || '', relation.to, relation.toType || '', relation.relationType);
+                else {
+                    // Resolve entity IDs - prefer direct IDs over name resolution
+                    let fromId = relation.fromId;
+                    let toId = relation.toId;
+                    // Resolve from entity by name/type if not provided by ID
+                    if (fromId === undefined && relation.fromName !== undefined) {
+                        const fromEntity = this.resolveEntity({
+                            name: relation.fromName,
+                            type: relation.fromType ?? ''
+                        });
+                        if (!fromEntity) {
+                            throw new Error(`Source entity not found: ${relation.fromName} (${relation.fromType ?? ''})`);
+                        }
+                        fromId = String(fromEntity.id);
+                    }
+                    // Resolve to entity by name/type if not provided by ID
+                    if (toId === undefined && relation.toName !== undefined) {
+                        const toEntity = this.resolveEntity({
+                            name: relation.toName,
+                            type: relation.toType ?? ''
+                        });
+                        if (!toEntity) {
+                            throw new Error(`Target entity not found: ${relation.toName} (${relation.toType ?? ''})`);
+                        }
+                        toId = String(toEntity.id);
+                    }
+                    if (fromId !== undefined && toId !== undefined && relation.relationType !== undefined) {
+                        deleteRelationByIds.run(fromId, toId, relation.relationType);
+                    }
                 }
             }
         });
@@ -310,7 +342,9 @@ export class SQLiteStorage {
             OR LOWER(e.entity_type) LIKE ?
             OR LOWER(o.content) LIKE ?`)
             .all(searchPattern, searchPattern, searchPattern);
+        const entityIdSet = new Set();
         for (const row of entityRows) {
+            entityIdSet.add(row.id);
             const observations = this.db
                 .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
                 .all(row.id);
@@ -326,30 +360,27 @@ export class SQLiteStorage {
                 })),
             });
         }
-        // Build set of (name, type) pairs for matching relations
-        const entityKeys = new Set(entities.map(e => `${e.name}:${e.entityType}`));
         if (entities.length > 0) {
-            // Build conditions for matching entities
-            const conditions = [];
-            const params = [];
-            for (const entity of entities) {
-                conditions.push('(from_entity = ? AND from_type = ?)');
-                conditions.push('(to_entity = ? AND to_type = ?)');
-                params.push(entity.name, entity.entityType, entity.name, entity.entityType);
-            }
+            // Get relations involving these entities
+            const placeholders = Array(entities.length).fill('?').join(',');
+            const entityIds = entities.map(e => e.id);
             const relationRows = this.db
-                .prepare(`SELECT id, from_entity, from_type, to_entity, to_type, relation_type
+                .prepare(`SELECT id, from_entity_id, to_entity_id, relation_type
            FROM relations
-           WHERE ${conditions.join(' OR ')}`)
-                .all(...params);
+           WHERE from_entity_id IN (${placeholders}) OR to_entity_id IN (${placeholders})`)
+                .all(...entityIds, ...entityIds);
             for (const row of relationRows) {
+                const fromEntity = this.getEntityById(row.from_entity_id);
+                const toEntity = this.getEntityById(row.to_entity_id);
                 relations.push({
                     id: String(row.id),
-                    from: row.from_entity,
-                    fromType: row.from_type,
-                    to: row.to_entity,
-                    toType: row.to_type,
+                    fromId: String(row.from_entity_id),
+                    toId: String(row.to_entity_id),
                     relationType: row.relation_type,
+                    from: fromEntity?.name,
+                    fromType: fromEntity?.entityType,
+                    to: toEntity?.name,
+                    toType: toEntity?.entityType,
                 });
             }
         }
@@ -385,25 +416,26 @@ export class SQLiteStorage {
                 })),
             });
         }
-        const entityKeys = new Set(entities.map(e => `${e.name}:${e.entityType}`));
+        const entityIdSet = new Set(entities.map(e => e.id));
         const relations = [];
         if (entities.length > 0) {
             // Get all relations between the requested entities
             const allRelationRows = this.db
-                .prepare(`SELECT id, from_entity, from_type, to_entity, to_type, relation_type
-           FROM relations`)
+                .prepare('SELECT id, from_entity_id, to_entity_id, relation_type FROM relations')
                 .all();
             for (const row of allRelationRows) {
-                const fromKey = `${row.from_entity}:${row.from_type}`;
-                const toKey = `${row.to_entity}:${row.to_type}`;
-                if (entityKeys.has(fromKey) && entityKeys.has(toKey)) {
+                if (entityIdSet.has(String(row.from_entity_id)) && entityIdSet.has(String(row.to_entity_id))) {
+                    const fromEntity = this.getEntityById(row.from_entity_id);
+                    const toEntity = this.getEntityById(row.to_entity_id);
                     relations.push({
                         id: String(row.id),
-                        from: row.from_entity,
-                        fromType: row.from_type,
-                        to: row.to_entity,
-                        toType: row.to_type,
+                        fromId: String(row.from_entity_id),
+                        toId: String(row.to_entity_id),
                         relationType: row.relation_type,
+                        from: fromEntity?.name,
+                        fromType: fromEntity?.entityType,
+                        to: toEntity?.name,
+                        toType: toEntity?.entityType,
                     });
                 }
             }
