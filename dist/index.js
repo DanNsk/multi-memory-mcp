@@ -491,10 +491,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 async function main() {
-    console.error(`Multi-Memory MCP Server starting...`);
-    console.error(`Memory base directory: ${MEMORY_BASE_DIR}`);
-    console.error(`Default category: ${DEFAULT_CATEGORY}`);
-    console.error(`Serialization format: ${SERIALIZATION_FORMAT}`);
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Multi-Memory MCP Server running on stdio");
