@@ -38,11 +38,14 @@ export interface Entity {
 
 export interface Relation {
   id?: string;
-  from: string;
-  fromType: string;
-  to: string;
-  toType: string;
+  fromId: string;
+  toId: string;
   relationType: string;
+  // Resolved names for readability (populated on output)
+  from?: string;
+  fromType?: string;
+  to?: string;
+  toType?: string;
 }
 
 export interface KnowledgeGraph {
@@ -64,12 +67,16 @@ export interface EntityEndpoint {
   type?: string;
 }
 
-// Relation identifier - can use ID or composite key
+// Relation identifier - can use relation ID, entity IDs, or entity names
 export interface RelationIdentifier {
   id?: string;
-  from?: string;
+  // By entity IDs
+  fromId?: string;
+  toId?: string;
+  // By entity names (will be resolved to IDs)
+  fromName?: string;
   fromType?: string;
-  to?: string;
+  toName?: string;
   toType?: string;
   relationType?: string;
 }

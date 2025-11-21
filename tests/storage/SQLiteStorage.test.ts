@@ -377,7 +377,7 @@ describe('SQLiteStorage', () => {
       ]);
 
       await storage.deleteRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type1' }
+        { fromName: 'Entity1', fromType: 'type1', toName: 'Entity2', toType: 'type2', relationType: 'type1' }
       ]);
 
       const graph = await storage.loadGraph();
@@ -398,7 +398,7 @@ describe('SQLiteStorage', () => {
 
     it('should handle deleting non-existent relations silently', async () => {
       await expect(storage.deleteRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'nonexistent' }
+        { fromName: 'Entity1', fromType: 'type1', toName: 'Entity2', toType: 'type2', relationType: 'nonexistent' }
       ])).resolves.not.toThrow();
     });
   });

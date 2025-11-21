@@ -204,7 +204,7 @@ describe('Full Workflow Integration Tests', () => {
       expect(graph.entities[0].observations).toHaveLength(1);
 
       await kgManager.deleteRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'relates_to' }
+        { fromName: 'Entity1', fromType: 'type1', toName: 'Entity2', toType: 'type2', relationType: 'relates_to' }
       ], category);
 
       graph = await kgManager.readGraph(category);

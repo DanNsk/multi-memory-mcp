@@ -229,7 +229,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'other');
 
       await kgManager.deleteRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' }
+        { fromName: 'Entity1', fromType: 'type1', toName: 'Entity2', toType: 'type2', relationType: 'rel1' }
       ], 'test');
 
       const testGraph = await kgManager.readGraph('test');
