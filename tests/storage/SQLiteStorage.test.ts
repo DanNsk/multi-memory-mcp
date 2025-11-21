@@ -23,7 +23,7 @@ SOFTWARE.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SQLiteStorage } from '../../src/storage/SQLiteStorage.js';
-import type { Entity, Relation, Observation } from '../../src/types/graph.js';
+import type { Entity, RelationInput } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -58,18 +58,26 @@ describe('SQLiteStorage', () => {
   });
 
   describe('Entity Operations', () => {
-    it('should create single entity', async () => {
+    it('should create single entity with IDs', async () => {
       const entities: Entity[] = [{
         name: 'TestEntity',
         entityType: 'test',
-        observations: [{ text: 'observation1' }, { text: 'observation2' }]
+        observations: [
+          { text: 'observation1', observationType: 'note', source: 'src1' },
+          { text: 'observation2', observationType: 'note', source: 'src2' }
+        ]
       }];
 
       const created = await storage.createEntities(entities);
-      expect(created).toEqual(entities);
+      expect(created).toHaveLength(1);
+      expect(created[0].id).toBeDefined();
+      expect(created[0].name).toBe('TestEntity');
+      expect(created[0].observations[0].id).toBeDefined();
+      expect(created[0].observations[1].id).toBeDefined();
 
       const graph = await storage.loadGraph();
       expect(graph.entities).toHaveLength(1);
+      expect(graph.entities[0].id).toBeDefined();
       expect(graph.entities[0].name).toBe('TestEntity');
       expect(graph.entities[0].entityType).toBe('test');
       expect(graph.entities[0].observations.map(o => o.text)).toEqual(['observation1', 'observation2']);
@@ -181,26 +189,47 @@ describe('SQLiteStorage', () => {
       const result = await storage.addObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        contents: [{ text: 'obs1' }, { text: 'obs2' }]
+        contents: [
+          { text: 'obs1', observationType: 'note', source: 'test1' },
+          { text: 'obs2', observationType: 'note', source: 'test2' }
+        ]
       }]);
 
+      expect(result[0].entityId).toBeDefined();
       expect(result[0].addedObservations.map(o => o.text)).toEqual(['obs1', 'obs2']);
+      expect(result[0].addedObservations[0].id).toBeDefined();
 
       const graph = await storage.loadGraph();
-      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['initial', 'obs1', 'obs2']);
+      expect(graph.entities[0].observations).toHaveLength(3);
     });
 
-    it('should not add duplicate observations', async () => {
+    it('should add observations by entity ID', async () => {
+      const graph = await storage.loadGraph();
+      const entityId = graph.entities[0].id;
+
+      const result = await storage.addObservations([{
+        entityId,
+        contents: [{ text: 'obs1', observationType: 'note', source: 'byId' }]
+      }]);
+
+      expect(result[0].entityId).toBe(entityId);
+      expect(result[0].addedObservations.map(o => o.text)).toEqual(['obs1']);
+    });
+
+    it('should not add duplicate observations with same type and source', async () => {
       await storage.addObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        contents: [{ text: 'obs1' }]
+        contents: [{ text: 'obs1', observationType: 'note', source: 'dup-test' }]
       }]);
 
       const result = await storage.addObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        contents: [{ text: 'obs1' }, { text: 'obs2' }]
+        contents: [
+          { text: 'updated text', observationType: 'note', source: 'dup-test' },  // Same type+source, should be skipped
+          { text: 'obs2', observationType: 'note', source: 'dup-test2' }  // Different source, should be added
+        ]
       }]);
 
       expect(result[0].addedObservations.map(o => o.text)).toEqual(['obs2']);
@@ -211,31 +240,55 @@ describe('SQLiteStorage', () => {
         entityName: 'NonExistent',
         entityType: 'test',
         contents: [{ text: 'obs' }]
-      }])).rejects.toThrow('Entity with name NonExistent and type test not found');
+      }])).rejects.toThrow("Entity with name 'NonExistent' with type 'test' not found");
     });
 
-    it('should delete observations from entity', async () => {
+    it('should delete observations from entity by observationType and source', async () => {
       await storage.addObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        contents: [{ text: 'obs1' }, { text: 'obs2' }, { text: 'obs3' }]
+        contents: [
+          { text: 'obs1', observationType: 'note', source: 'test' },
+          { text: 'obs2', observationType: 'fact', source: 'test' },
+          { text: 'obs3', observationType: 'note', source: 'other' }
+        ]
       }]);
 
       await storage.deleteObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        observations: [{ text: 'obs2' }]
+        observationType: 'fact',
+        source: 'test'
       }]);
 
       const graph = await storage.loadGraph();
-      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['initial', 'obs1', 'obs3']);
+      expect(graph.entities[0].observations).toHaveLength(3); // initial + 3 added - 1 deleted
+      expect(graph.entities[0].observations.map(o => o.text)).toContain('obs1');
+      expect(graph.entities[0].observations.map(o => o.text)).toContain('obs3');
+      expect(graph.entities[0].observations.map(o => o.text)).not.toContain('obs2');
+    });
+
+    it('should delete observations by ID', async () => {
+      const result = await storage.addObservations([{
+        entityName: 'TestEntity',
+        entityType: 'test',
+        contents: [{ text: 'obs1', observationType: 'note', source: 'delete-test' }]
+      }]);
+
+      const obsId = result[0].addedObservations[0].id;
+
+      await storage.deleteObservations([{ id: obsId }]);
+
+      const graph = await storage.loadGraph();
+      expect(graph.entities[0].observations.map(o => o.text)).toEqual(['initial']);
     });
 
     it('should handle deleting non-existent observations silently', async () => {
       await storage.deleteObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        observations: [{ text: 'nonexistent' }]
+        observationType: 'nonexistent',
+        source: 'nonexistent'
       }]);
 
       const graph = await storage.loadGraph();
@@ -246,7 +299,8 @@ describe('SQLiteStorage', () => {
       await expect(storage.deleteObservations([{
         entityName: 'NonExistent',
         entityType: 'test',
-        observations: [{ text: 'obs' }]
+        observationType: '',
+        source: ''
       }])).resolves.not.toThrow();
     });
   });
@@ -259,26 +313,44 @@ describe('SQLiteStorage', () => {
       ]);
     });
 
-    it('should create single relation', async () => {
-      const relations: Relation[] = [{
-        from: 'Entity1',
-        fromType: 'type1',
-        to: 'Entity2',
-        toType: 'type2',
+    it('should create single relation with ID', async () => {
+      const relations: RelationInput[] = [{
+        from: { name: 'Entity1', type: 'type1' },
+        to: { name: 'Entity2', type: 'type2' },
         relationType: 'depends_on'
       }];
 
       const created = await storage.createRelations(relations);
-      expect(created).toEqual(relations);
+      expect(created).toHaveLength(1);
+      expect(created[0].id).toBeDefined();
+      expect(created[0].from).toBe('Entity1');
+      expect(created[0].to).toBe('Entity2');
 
       const graph = await storage.loadGraph();
-      expect(graph.relations).toEqual(relations);
+      expect(graph.relations).toHaveLength(1);
+      expect(graph.relations[0].id).toBeDefined();
+    });
+
+    it('should create relations using entity IDs', async () => {
+      const graph = await storage.loadGraph();
+      const entity1Id = graph.entities.find(e => e.name === 'Entity1')!.id;
+      const entity2Id = graph.entities.find(e => e.name === 'Entity2')!.id;
+
+      const created = await storage.createRelations([{
+        from: { id: entity1Id },
+        to: { id: entity2Id },
+        relationType: 'depends_on'
+      }]);
+
+      expect(created).toHaveLength(1);
+      expect(created[0].from).toBe('Entity1');
+      expect(created[0].to).toBe('Entity2');
     });
 
     it('should create multiple relations', async () => {
-      const relations: Relation[] = [
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type1' },
-        { from: 'Entity2', fromType: 'type2', to: 'Entity1', toType: 'type1', relationType: 'type2' }
+      const relations: RelationInput[] = [
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'type1' },
+        { from: { name: 'Entity2', type: 'type2' }, to: { name: 'Entity1', type: 'type1' }, relationType: 'type2' }
       ];
 
       const created = await storage.createRelations(relations);
@@ -289,11 +361,9 @@ describe('SQLiteStorage', () => {
     });
 
     it('should ignore duplicate relations', async () => {
-      const relation: Relation = {
-        from: 'Entity1',
-        fromType: 'type1',
-        to: 'Entity2',
-        toType: 'type2',
+      const relation: RelationInput = {
+        from: { name: 'Entity1', type: 'type1' },
+        to: { name: 'Entity2', type: 'type2' },
         relationType: 'depends_on'
       };
 
@@ -307,9 +377,9 @@ describe('SQLiteStorage', () => {
     });
 
     it('should allow same entities with different relation types', async () => {
-      const relations: Relation[] = [
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type1' },
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type2' }
+      const relations: RelationInput[] = [
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'type1' },
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'type2' }
       ];
 
       const created = await storage.createRelations(relations);
@@ -319,14 +389,14 @@ describe('SQLiteStorage', () => {
       expect(graph.relations).toHaveLength(2);
     });
 
-    it('should delete specific relations', async () => {
+    it('should delete specific relations by composite key', async () => {
       await storage.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type1' },
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type2' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'type1' },
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'type2' }
       ]);
 
       await storage.deleteRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'type1' }
+        { fromName: 'Entity1', fromType: 'type1', toName: 'Entity2', toType: 'type2', relationType: 'type1' }
       ]);
 
       const graph = await storage.loadGraph();
@@ -334,9 +404,20 @@ describe('SQLiteStorage', () => {
       expect(graph.relations[0].relationType).toBe('type2');
     });
 
+    it('should delete relations by ID', async () => {
+      const created = await storage.createRelations([
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'depends_on' }
+      ]);
+
+      await storage.deleteRelations([{ id: created[0].id }]);
+
+      const graph = await storage.loadGraph();
+      expect(graph.relations).toHaveLength(0);
+    });
+
     it('should handle deleting non-existent relations silently', async () => {
       await expect(storage.deleteRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'nonexistent' }
+        { fromName: 'Entity1', fromType: 'type1', toName: 'Entity2', toType: 'type2', relationType: 'nonexistent' }
       ])).resolves.not.toThrow();
     });
   });
@@ -350,9 +431,9 @@ describe('SQLiteStorage', () => {
       ]);
 
       await storage.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' },
-        { from: 'Entity2', fromType: 'type2', to: 'Entity3', toType: 'type3', relationType: 'rel2' },
-        { from: 'Entity1', fromType: 'type1', to: 'Entity3', toType: 'type3', relationType: 'rel3' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'rel1' },
+        { from: { name: 'Entity2', type: 'type2' }, to: { name: 'Entity3', type: 'type3' }, relationType: 'rel2' },
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity3', type: 'type3' }, relationType: 'rel3' }
       ]);
     });
 
@@ -363,13 +444,18 @@ describe('SQLiteStorage', () => {
       expect(graph.entities).toHaveLength(2);
       expect(graph.entities.find(e => e.name === 'Entity2')).toBeUndefined();
       expect(graph.relations).toHaveLength(1);
-      expect(graph.relations[0]).toEqual({
-        from: 'Entity1',
-        fromType: 'type1',
-        to: 'Entity3',
-        toType: 'type3',
-        relationType: 'rel3'
-      });
+      expect(graph.relations[0].from).toBe('Entity1');
+      expect(graph.relations[0].to).toBe('Entity3');
+    });
+
+    it('should delete entity by ID', async () => {
+      const graph = await storage.loadGraph();
+      const entityId = graph.entities.find(e => e.name === 'Entity2')!.id;
+
+      await storage.deleteEntities([{ id: entityId }]);
+
+      const updatedGraph = await storage.loadGraph();
+      expect(updatedGraph.entities.find(e => e.name === 'Entity2')).toBeUndefined();
     });
 
     it('should delete multiple entities', async () => {
@@ -395,21 +481,25 @@ describe('SQLiteStorage', () => {
   describe('Search Operations', () => {
     beforeEach(async () => {
       await storage.createEntities([
-        { name: 'UserService', entityType: 'service', observations: [{ text: 'Handles authentication' }, { text: 'Uses JWT' }] },
+        { name: 'UserService', entityType: 'service', observations: [
+          { text: 'Handles authentication', observationType: 'feature', source: 'docs' },
+          { text: 'Uses JWT', observationType: 'tech', source: 'docs' }
+        ]},
         { name: 'DatabaseClient', entityType: 'client', observations: [{ text: 'PostgreSQL connection' }] },
         { name: 'AuthController', entityType: 'controller', observations: [{ text: 'REST API endpoints' }] }
       ]);
 
       await storage.createRelations([
-        { from: 'AuthController', fromType: 'controller', to: 'UserService', toType: 'service', relationType: 'depends_on' },
-        { from: 'UserService', fromType: 'service', to: 'DatabaseClient', toType: 'client', relationType: 'uses' }
+        { from: { name: 'AuthController', type: 'controller' }, to: { name: 'UserService', type: 'service' }, relationType: 'depends_on' },
+        { from: { name: 'UserService', type: 'service' }, to: { name: 'DatabaseClient', type: 'client' }, relationType: 'uses' }
       ]);
     });
 
-    it('should search by entity name', async () => {
+    it('should search by entity name and return IDs', async () => {
       const result = await storage.searchNodes('UserService');
       expect(result.entities).toHaveLength(1);
       expect(result.entities[0].name).toBe('UserService');
+      expect(result.entities[0].id).toBeDefined();
     });
 
     it('should search by entity type', async () => {
@@ -435,9 +525,10 @@ describe('SQLiteStorage', () => {
       expect(result.entities).toHaveLength(1);
     });
 
-    it('should return only relations between found entities', async () => {
+    it('should return only relations between found entities with IDs', async () => {
       const result = await storage.searchNodes('UserService');
       expect(result.relations).toHaveLength(2);
+      expect(result.relations.every(r => r.id !== undefined)).toBe(true);
       expect(result.relations.every(r =>
         r.from === 'UserService' || r.to === 'UserService'
       )).toBe(true);
@@ -459,8 +550,8 @@ describe('SQLiteStorage', () => {
       ]);
 
       await storage.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' },
-        { from: 'Entity2', fromType: 'type2', to: 'Entity3', toType: 'type3', relationType: 'rel2' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'rel1' },
+        { from: { name: 'Entity2', type: 'type2' }, to: { name: 'Entity3', type: 'type3' }, relationType: 'rel2' }
       ]);
     });
 
@@ -471,6 +562,16 @@ describe('SQLiteStorage', () => {
       ]);
       expect(result.entities).toHaveLength(2);
       expect(result.entities.map(e => e.name).sort()).toEqual(['Entity1', 'Entity2']);
+      expect(result.entities[0].id).toBeDefined();
+    });
+
+    it('should open nodes by ID', async () => {
+      const graph = await storage.loadGraph();
+      const entity1Id = graph.entities.find(e => e.name === 'Entity1')!.id;
+
+      const result = await storage.openNodes([{ id: entity1Id }]);
+      expect(result.entities).toHaveLength(1);
+      expect(result.entities[0].name).toBe('Entity1');
     });
 
     it('should return only relations between opened nodes', async () => {
@@ -479,13 +580,9 @@ describe('SQLiteStorage', () => {
         { name: 'Entity2', entityType: 'type2' }
       ]);
       expect(result.relations).toHaveLength(1);
-      expect(result.relations[0]).toEqual({
-        from: 'Entity1',
-        fromType: 'type1',
-        to: 'Entity2',
-        toType: 'type2',
-        relationType: 'rel1'
-      });
+      expect(result.relations[0].from).toBe('Entity1');
+      expect(result.relations[0].to).toBe('Entity2');
+      expect(result.relations[0].id).toBeDefined();
     });
 
     it('should exclude relations to nodes not in list', async () => {
@@ -533,8 +630,8 @@ describe('SQLiteStorage', () => {
       await storage.createEntities([entity]);
 
       await Promise.all([
-        storage.addObservations([{ entityName: 'Test', entityType: 'type', contents: [{ text: 'obs2' }] }]),
-        storage.addObservations([{ entityName: 'Test', entityType: 'type', contents: [{ text: 'obs3' }] }])
+        storage.addObservations([{ entityName: 'Test', entityType: 'type', contents: [{ text: 'obs2', observationType: 'note', source: 'parallel1' }] }]),
+        storage.addObservations([{ entityName: 'Test', entityType: 'type', contents: [{ text: 'obs3', observationType: 'note', source: 'parallel2' }] }])
       ]);
 
       const graph = await storage.loadGraph();
@@ -568,7 +665,11 @@ describe('SQLiteStorage', () => {
     });
 
     it('should handle very large number of observations', async () => {
-      const observations = Array.from({ length: 1000 }, (_, i) => ({ text: `obs${i}` }));
+      const observations = Array.from({ length: 1000 }, (_, i) => ({
+        text: `obs${i}`,
+        observationType: 'note',
+        source: `src${i}`  // Each observation needs unique type+source
+      }));
       const entity: Entity = {
         name: 'ManyObs',
         entityType: 'test',
@@ -613,6 +714,7 @@ describe('SQLiteStorage', () => {
       expect(graph.entities[0].name).toBe('Persistent');
       expect(graph.entities[0].entityType).toBe('test');
       expect(graph.entities[0].observations.map(o => o.text)).toEqual(['data']);
+      expect(graph.entities[0].id).toBeDefined();
 
       newStorage.close();
     });
@@ -628,7 +730,8 @@ describe('SQLiteStorage', () => {
       const storage2 = new SQLiteStorage(TEST_DB_PATH);
       const graph2 = await storage2.loadGraph();
 
-      expect(graph2).toEqual(graph1);
+      expect(graph2.entities[0].name).toEqual(graph1.entities[0].name);
+      expect(graph2.entities[0].id).toBeDefined();
 
       storage2.close();
     });

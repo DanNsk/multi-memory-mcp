@@ -22,7 +22,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-import type { Entity, Relation, KnowledgeGraph, Observation, EntityReference } from '../types/graph.js';
+import type {
+  Entity,
+  Relation,
+  KnowledgeGraph,
+  Observation,
+  EntityReference,
+  RelationInput,
+  RelationIdentifier,
+  ObservationIdentifier,
+  ObservationResult
+} from '../types/graph.js';
 import { CategoryManager } from './CategoryManager.js';
 
 export class KnowledgeGraphManager {
@@ -37,16 +47,16 @@ export class KnowledgeGraphManager {
     return storage.createEntities(entities);
   }
 
-  async createRelations(relations: Relation[], category?: string): Promise<Relation[]> {
+  async createRelations(relations: RelationInput[], category?: string): Promise<Relation[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
     return storage.createRelations(relations);
   }
 
   async addObservations(
-    observations: { entityName: string; entityType: string; contents: Observation[] }[],
+    observations: { entityId?: string; entityName?: string; entityType?: string; contents: Observation[] }[],
     category?: string
-  ): Promise<{ entityName: string; entityType: string; addedObservations: Observation[] }[]> {
+  ): Promise<ObservationResult[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
     return storage.addObservations(observations);
@@ -59,7 +69,7 @@ export class KnowledgeGraphManager {
   }
 
   async deleteObservations(
-    deletions: { entityName: string; entityType: string; observations: Observation[] }[],
+    deletions: ObservationIdentifier[],
     category?: string
   ): Promise<void> {
     const cat = category || this.defaultCategory;
@@ -67,7 +77,7 @@ export class KnowledgeGraphManager {
     return storage.deleteObservations(deletions);
   }
 
-  async deleteRelations(relations: Relation[], category?: string): Promise<void> {
+  async deleteRelations(relations: RelationIdentifier[], category?: string): Promise<void> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
     return storage.deleteRelations(relations);
