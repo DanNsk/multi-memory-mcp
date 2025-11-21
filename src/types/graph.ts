@@ -24,6 +24,7 @@ SOFTWARE.
 
 export interface Observation {
   id?: string;
+  observationType?: string;
   text: string;
   timestamp?: string;
   source?: string;
@@ -81,13 +82,14 @@ export interface RelationIdentifier {
   relationType?: string;
 }
 
-// Observation identifier for deletion
+// Observation identifier for deletion - use id OR (entity + observationType + source)
 export interface ObservationIdentifier {
   id?: string;
   entityId?: string;
   entityName?: string;
   entityType?: string;
-  text?: string;
+  observationType?: string;
+  source?: string;
 }
 
 // Input types for creating relations with flexible endpoints

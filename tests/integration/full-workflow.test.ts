@@ -52,13 +52,19 @@ describe('Full Workflow Integration Tests', () => {
       await kgManager.createEntities([{
         name: 'Alice',
         entityType: 'colleague',
-        observations: [{ text: 'Software engineer' }, { text: 'Works on frontend team' }]
+        observations: [
+          { text: 'Software engineer', observationType: 'role', source: 'profile' },
+          { text: 'Works on frontend team', observationType: 'team', source: 'profile' }
+        ]
       }], 'work');
 
       await kgManager.createEntities([{
         name: 'Alice',
         entityType: 'friend',
-        observations: [{ text: 'Enjoys hiking' }, { text: 'Birthday in June' }]
+        observations: [
+          { text: 'Enjoys hiking', observationType: 'hobby', source: 'chat' },
+          { text: 'Birthday in June', observationType: 'personal', source: 'chat' }
+        ]
       }], 'personal');
 
       const workGraph = await kgManager.readGraph('work');
@@ -80,7 +86,10 @@ describe('Full Workflow Integration Tests', () => {
       await kgManager.addObservations([{
         entityName: 'Project_Alpha',
         entityType: 'project',
-        contents: [{ text: 'Uses React and TypeScript' }, { text: 'Team of 5 developers' }]
+        contents: [
+          { text: 'Uses React and TypeScript', observationType: 'tech', source: 'meeting' },
+          { text: 'Team of 5 developers', observationType: 'team', source: 'meeting' }
+        ]
       }], 'work');
 
       await kgManager.createEntities([{
@@ -176,7 +185,7 @@ describe('Full Workflow Integration Tests', () => {
       await kgManager.addObservations([{
         entityName: 'Entity1',
         entityType: 'type1',
-        contents: [{ text: 'additional info' }]
+        contents: [{ text: 'additional info', observationType: 'note', source: 'update' }]
       }], category);
 
       graph = await kgManager.readGraph(category);
@@ -197,7 +206,8 @@ describe('Full Workflow Integration Tests', () => {
       await kgManager.deleteObservations([{
         entityName: 'Entity1',
         entityType: 'type1',
-        text: 'initial'
+        observationType: '',
+        source: ''
       }], category);
 
       graph = await kgManager.readGraph(category);
@@ -221,7 +231,10 @@ describe('Full Workflow Integration Tests', () => {
   describe('Search and Discovery', () => {
     beforeEach(async () => {
       await kgManager.createEntities([
-        { name: 'UserAuthentication', entityType: 'feature', observations: [{ text: 'Handles login' }, { text: 'Uses JWT' }] },
+        { name: 'UserAuthentication', entityType: 'feature', observations: [
+          { text: 'Handles login', observationType: 'function', source: 'docs' },
+          { text: 'Uses JWT', observationType: 'tech', source: 'docs' }
+        ]},
         { name: 'UserProfile', entityType: 'feature', observations: [{ text: 'Displays user info' }] },
         { name: 'AdminPanel', entityType: 'feature', observations: [{ text: 'Admin dashboard' }] },
         { name: 'DatabaseConnection', entityType: 'infrastructure', observations: [{ text: 'PostgreSQL' }] }
@@ -454,17 +467,17 @@ describe('Full Workflow Integration Tests', () => {
     it('should track codebase structure and documentation', async () => {
       await kgManager.createEntities([
         { name: 'AuthService', entityType: 'class', observations: [
-          { text: 'Located in src/services/auth.ts' },
-          { text: 'Exports login, logout, validateToken methods' },
-          { text: 'Uses bcrypt for password hashing' }
+          { text: 'Located in src/services/auth.ts', observationType: 'location', source: 'code' },
+          { text: 'Exports login, logout, validateToken methods', observationType: 'api', source: 'code' },
+          { text: 'Uses bcrypt for password hashing', observationType: 'tech', source: 'code' }
         ]},
         { name: 'UserModel', entityType: 'class', observations: [
-          { text: 'Database model for users' },
-          { text: 'Fields: id, email, passwordHash, createdAt' }
+          { text: 'Database model for users', observationType: 'description', source: 'code' },
+          { text: 'Fields: id, email, passwordHash, createdAt', observationType: 'schema', source: 'code' }
         ]},
         { name: 'JWT', entityType: 'library', observations: [
-          { text: 'jsonwebtoken npm package' },
-          { text: 'Used for token generation' }
+          { text: 'jsonwebtoken npm package', observationType: 'package', source: 'npm' },
+          { text: 'Used for token generation', observationType: 'usage', source: 'code' }
         ]}
       ], 'codebase-docs');
 

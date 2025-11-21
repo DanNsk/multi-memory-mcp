@@ -44,11 +44,13 @@ export class SQLiteStorage {
       CREATE TABLE IF NOT EXISTS observations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_id INTEGER NOT NULL,
+        observation_type TEXT NOT NULL DEFAULT '',
         content TEXT NOT NULL,
         timestamp TEXT,
-        source TEXT,
+        source TEXT NOT NULL DEFAULT '',
         created_at INTEGER DEFAULT (unixepoch()),
-        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+        UNIQUE(entity_id, observation_type, source)
       );
 
       CREATE TABLE IF NOT EXISTS relations (
@@ -104,7 +106,7 @@ export class SQLiteStorage {
         const entityRows = this.db.prepare('SELECT id, name, entity_type FROM entities').all();
         for (const row of entityRows) {
             const observations = this.db
-                .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
+                .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
                 .all(row.id);
             entities.push({
                 id: String(row.id),
@@ -113,6 +115,7 @@ export class SQLiteStorage {
                 observations: observations.map(o => ({
                     id: String(o.id),
                     text: o.content,
+                    ...(o.observation_type && { observationType: o.observation_type }),
                     ...(o.timestamp && { timestamp: o.timestamp }),
                     ...(o.source && { source: o.source }),
                 })),
@@ -139,7 +142,7 @@ export class SQLiteStorage {
     }
     async createEntities(entities) {
         const insertEntity = this.db.prepare('INSERT OR IGNORE INTO entities (name, entity_type) VALUES (?, ?)');
-        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)');
+        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, observation_type, content, timestamp, source) VALUES (?, ?, ?, ?, ?)');
         const getEntity = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE name = ? AND entity_type = ?');
         const newEntities = [];
         const transaction = this.db.transaction((entitiesToCreate) => {
@@ -150,10 +153,11 @@ export class SQLiteStorage {
                     const observationsWithIds = [];
                     for (const observation of entity.observations) {
                         const timestamp = observation.timestamp || new Date().toISOString();
-                        const obsResult = insertObservation.run(entityRow.id, observation.text, timestamp, observation.source || null);
+                        const obsResult = insertObservation.run(entityRow.id, observation.observationType || '', observation.text, timestamp, observation.source || '');
                         observationsWithIds.push({
                             id: String(obsResult.lastInsertRowid),
                             text: observation.text,
+                            ...(observation.observationType && { observationType: observation.observationType }),
                             timestamp,
                             ...(observation.source && { source: observation.source }),
                         });
@@ -208,8 +212,8 @@ export class SQLiteStorage {
         return newRelations;
     }
     async addObservations(observations) {
-        const getExistingObservations = this.db.prepare('SELECT content FROM observations WHERE entity_id = ?');
-        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)');
+        const getExistingObservations = this.db.prepare('SELECT observation_type, source FROM observations WHERE entity_id = ?');
+        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, observation_type, content, timestamp, source) VALUES (?, ?, ?, ?, ?)');
         const results = [];
         const transaction = this.db.transaction((observationsToAdd) => {
             for (const obs of observationsToAdd) {
@@ -224,18 +228,21 @@ export class SQLiteStorage {
                     throw new Error(`Entity with ${identifier} not found`);
                 }
                 const existingObs = getExistingObservations.all(entity.id);
-                const existingSet = new Set(existingObs.map(o => o.content));
+                const existingSet = new Set(existingObs.map(o => `${o.observation_type}|${o.source}`));
                 const addedObservations = [];
                 for (const observation of obs.contents) {
-                    if (!existingSet.has(observation.text)) {
+                    const obsKey = `${observation.observationType || ''}|${observation.source || ''}`;
+                    if (!existingSet.has(obsKey)) {
                         const timestamp = observation.timestamp || new Date().toISOString();
-                        const obsResult = insertObservation.run(entity.id, observation.text, timestamp, observation.source || null);
+                        const obsResult = insertObservation.run(entity.id, observation.observationType || '', observation.text, timestamp, observation.source || '');
                         addedObservations.push({
                             id: String(obsResult.lastInsertRowid),
                             text: observation.text,
+                            ...(observation.observationType && { observationType: observation.observationType }),
                             timestamp,
                             ...(observation.source && { source: observation.source }),
                         });
+                        existingSet.add(obsKey);
                     }
                 }
                 results.push({
@@ -266,7 +273,7 @@ export class SQLiteStorage {
     }
     async deleteObservations(deletions) {
         const deleteObservationById = this.db.prepare('DELETE FROM observations WHERE id = ?');
-        const deleteObservationByContent = this.db.prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?');
+        const deleteObservationByKey = this.db.prepare('DELETE FROM observations WHERE entity_id = ? AND observation_type = ? AND source = ?');
         const transaction = this.db.transaction((deletionsToProcess) => {
             for (const deletion of deletionsToProcess) {
                 if (deletion.id) {
@@ -280,8 +287,8 @@ export class SQLiteStorage {
                         name: deletion.entityName,
                         entityType: deletion.entityType
                     });
-                    if (entity && deletion.text) {
-                        deleteObservationByContent.run(entity.id, deletion.text);
+                    if (entity) {
+                        deleteObservationByKey.run(entity.id, deletion.observationType || '', deletion.source || '');
                     }
                 }
             }
@@ -346,7 +353,7 @@ export class SQLiteStorage {
         for (const row of entityRows) {
             entityIdSet.add(row.id);
             const observations = this.db
-                .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
+                .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
                 .all(row.id);
             entities.push({
                 id: String(row.id),
@@ -355,6 +362,7 @@ export class SQLiteStorage {
                 observations: observations.map(o => ({
                     id: String(o.id),
                     text: o.content,
+                    ...(o.observation_type && { observationType: o.observation_type }),
                     ...(o.timestamp && { timestamp: o.timestamp }),
                     ...(o.source && { source: o.source }),
                 })),
@@ -402,7 +410,7 @@ export class SQLiteStorage {
         // Fetch full entity data with observations
         for (const entity of resolvedEntities) {
             const observations = this.db
-                .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
+                .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
                 .all(entity.id);
             entities.push({
                 id: String(entity.id),
@@ -411,6 +419,7 @@ export class SQLiteStorage {
                 observations: observations.map(o => ({
                     id: String(o.id),
                     text: o.content,
+                    ...(o.observation_type && { observationType: o.observation_type }),
                     ...(o.timestamp && { timestamp: o.timestamp }),
                     ...(o.source && { source: o.source }),
                 })),

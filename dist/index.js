@@ -49,7 +49,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         tools: [
             {
                 name: "create_entities",
-                description: "Create multiple new entities in the knowledge graph. Returns entities with their assigned IDs. Output format controlled by SERIALIZATION_FORMAT env (json/toon).",
+                description: "Create multiple new entities in the knowledge graph. Returns entities with their assigned IDs. Constraints: entities unique by (name, entityType); observations unique by (entity, observationType, source).",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -69,9 +69,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                                         items: {
                                             type: "object",
                                             properties: {
+                                                observationType: { type: "string", description: "Type/category of observation (optional, defaults to empty string)" },
                                                 text: { type: "string", description: "The observation text content" },
                                                 timestamp: { type: "string", description: "ISO 8601 timestamp (optional, defaults to current time)" },
-                                                source: { type: "string", description: "Source of the observation (optional)" }
+                                                source: { type: "string", description: "Source of the observation (optional, defaults to empty string)" }
                                             },
                                             required: ["text"],
                                             additionalProperties: false
@@ -136,7 +137,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "add_observations",
-                description: "Add new observations to existing entities. Entity can be specified by entityId OR by entityName/entityType. Returns observation IDs.",
+                description: "Add new observations to existing entities. Entity can be specified by entityId OR by entityName/entityType. Returns observation IDs. Constraint: observations unique by (entity, observationType, source).",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -157,9 +158,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                                         items: {
                                             type: "object",
                                             properties: {
+                                                observationType: { type: "string", description: "Type/category of observation (optional, defaults to empty string)" },
                                                 text: { type: "string", description: "The observation text content" },
                                                 timestamp: { type: "string", description: "ISO 8601 timestamp (optional)" },
-                                                source: { type: "string", description: "Source of the observation (optional)" }
+                                                source: { type: "string", description: "Source of the observation (optional, defaults to empty string)" }
                                             },
                                             required: ["text"],
                                             additionalProperties: false
@@ -206,7 +208,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "delete_observations",
-                description: "Delete specific observations. Specify by observation id OR by entity identifier + text content.",
+                description: "Delete specific observations. Specify by observation id OR by entity identifier + observationType + source.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -219,11 +221,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                             items: {
                                 type: "object",
                                 properties: {
-                                    id: { type: "string", description: "Observation ID (alternative to entity+text)" },
+                                    id: { type: "string", description: "Observation ID (alternative to entity+observationType+source)" },
                                     entityId: { type: "string", description: "Entity ID (alternative to entityName/entityType)" },
                                     entityName: { type: "string", description: "Entity name (use with entityType)" },
                                     entityType: { type: "string", description: "Entity type (defaults to empty string)" },
-                                    text: { type: "string", description: "Observation text content to delete" }
+                                    observationType: { type: "string", description: "Observation type (defaults to empty string)" },
+                                    source: { type: "string", description: "Observation source (defaults to empty string)" }
                                 },
                                 additionalProperties: false,
                             },
@@ -414,7 +417,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     entityId: d.entityId,
                     entityName: d.entityName,
                     entityType: d.entityType ?? '',
-                    text: d.text
+                    observationType: d.observationType ?? '',
+                    source: d.source ?? ''
                 }));
                 await knowledgeGraphManager.deleteObservations(deletionsInput, args?.category);
                 return { content: [{ type: "text", text: "Observations deleted successfully" }] };

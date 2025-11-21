@@ -60,11 +60,13 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE TABLE IF NOT EXISTS observations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_id INTEGER NOT NULL,
+        observation_type TEXT NOT NULL DEFAULT '',
         content TEXT NOT NULL,
         timestamp TEXT,
-        source TEXT,
+        source TEXT NOT NULL DEFAULT '',
         created_at INTEGER DEFAULT (unixepoch()),
-        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+        UNIQUE(entity_id, observation_type, source)
       );
 
       CREATE TABLE IF NOT EXISTS relations (
@@ -132,8 +134,8 @@ export class SQLiteStorage implements StorageAdapter {
 
     for (const row of entityRows) {
       const observations = this.db
-        .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ id: number; content: string; timestamp: string | null; source: string | null }>;
+        .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ id: number; observation_type: string; content: string; timestamp: string | null; source: string }>;
 
       entities.push({
         id: String(row.id),
@@ -142,6 +144,7 @@ export class SQLiteStorage implements StorageAdapter {
         observations: observations.map(o => ({
           id: String(o.id),
           text: o.content,
+          ...(o.observation_type && { observationType: o.observation_type }),
           ...(o.timestamp && { timestamp: o.timestamp }),
           ...(o.source && { source: o.source }),
         })),
@@ -176,7 +179,7 @@ export class SQLiteStorage implements StorageAdapter {
       'INSERT OR IGNORE INTO entities (name, entity_type) VALUES (?, ?)'
     );
     const insertObservation = this.db.prepare(
-      'INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)'
+      'INSERT INTO observations (entity_id, observation_type, content, timestamp, source) VALUES (?, ?, ?, ?, ?)'
     );
     const getEntity = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE name = ? AND entity_type = ?');
 
@@ -191,10 +194,11 @@ export class SQLiteStorage implements StorageAdapter {
 
           for (const observation of entity.observations) {
             const timestamp = observation.timestamp || new Date().toISOString();
-            const obsResult = insertObservation.run(entityRow.id, observation.text, timestamp, observation.source || null);
+            const obsResult = insertObservation.run(entityRow.id, observation.observationType || '', observation.text, timestamp, observation.source || '');
             observationsWithIds.push({
               id: String(obsResult.lastInsertRowid),
               text: observation.text,
+              ...(observation.observationType && { observationType: observation.observationType }),
               timestamp,
               ...(observation.source && { source: observation.source }),
             });
@@ -275,10 +279,10 @@ export class SQLiteStorage implements StorageAdapter {
     observations: { entityId?: string; entityName?: string; entityType?: string; contents: Observation[] }[]
   ): Promise<ObservationResult[]> {
     const getExistingObservations = this.db.prepare(
-      'SELECT content FROM observations WHERE entity_id = ?'
+      'SELECT observation_type, source FROM observations WHERE entity_id = ?'
     );
     const insertObservation = this.db.prepare(
-      'INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)'
+      'INSERT INTO observations (entity_id, observation_type, content, timestamp, source) VALUES (?, ?, ?, ?, ?)'
     );
 
     const results: ObservationResult[] = [];
@@ -297,20 +301,23 @@ export class SQLiteStorage implements StorageAdapter {
           throw new Error(`Entity with ${identifier} not found`);
         }
 
-        const existingObs = getExistingObservations.all(entity.id) as Array<{ content: string }>;
-        const existingSet = new Set(existingObs.map(o => o.content));
+        const existingObs = getExistingObservations.all(entity.id) as Array<{ observation_type: string; source: string }>;
+        const existingSet = new Set(existingObs.map(o => `${o.observation_type}|${o.source}`));
 
         const addedObservations: Observation[] = [];
         for (const observation of obs.contents) {
-          if (!existingSet.has(observation.text)) {
+          const obsKey = `${observation.observationType || ''}|${observation.source || ''}`;
+          if (!existingSet.has(obsKey)) {
             const timestamp = observation.timestamp || new Date().toISOString();
-            const obsResult = insertObservation.run(entity.id, observation.text, timestamp, observation.source || null);
+            const obsResult = insertObservation.run(entity.id, observation.observationType || '', observation.text, timestamp, observation.source || '');
             addedObservations.push({
               id: String(obsResult.lastInsertRowid),
               text: observation.text,
+              ...(observation.observationType && { observationType: observation.observationType }),
               timestamp,
               ...(observation.source && { source: observation.source }),
             });
+            existingSet.add(obsKey);
           }
         }
 
@@ -346,8 +353,8 @@ export class SQLiteStorage implements StorageAdapter {
 
   async deleteObservations(deletions: ObservationIdentifier[]): Promise<void> {
     const deleteObservationById = this.db.prepare('DELETE FROM observations WHERE id = ?');
-    const deleteObservationByContent = this.db.prepare(
-      'DELETE FROM observations WHERE entity_id = ? AND content = ?'
+    const deleteObservationByKey = this.db.prepare(
+      'DELETE FROM observations WHERE entity_id = ? AND observation_type = ? AND source = ?'
     );
 
     const transaction = this.db.transaction((deletionsToProcess: ObservationIdentifier[]) => {
@@ -363,8 +370,8 @@ export class SQLiteStorage implements StorageAdapter {
             entityType: deletion.entityType
           });
 
-          if (entity && deletion.text) {
-            deleteObservationByContent.run(entity.id, deletion.text);
+          if (entity) {
+            deleteObservationByKey.run(entity.id, deletion.observationType || '', deletion.source || '');
           }
         }
       }
@@ -447,8 +454,8 @@ export class SQLiteStorage implements StorageAdapter {
     for (const row of entityRows) {
       entityIdSet.add(row.id);
       const observations = this.db
-        .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ id: number; content: string; timestamp: string | null; source: string | null }>;
+        .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ id: number; observation_type: string; content: string; timestamp: string | null; source: string }>;
 
       entities.push({
         id: String(row.id),
@@ -457,6 +464,7 @@ export class SQLiteStorage implements StorageAdapter {
         observations: observations.map(o => ({
           id: String(o.id),
           text: o.content,
+          ...(o.observation_type && { observationType: o.observation_type }),
           ...(o.timestamp && { timestamp: o.timestamp }),
           ...(o.source && { source: o.source }),
         })),
@@ -515,8 +523,8 @@ export class SQLiteStorage implements StorageAdapter {
     // Fetch full entity data with observations
     for (const entity of resolvedEntities) {
       const observations = this.db
-        .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
-        .all(entity.id) as Array<{ id: number; content: string; timestamp: string | null; source: string | null }>;
+        .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(entity.id) as Array<{ id: number; observation_type: string; content: string; timestamp: string | null; source: string }>;
 
       entities.push({
         id: String(entity.id),
@@ -525,6 +533,7 @@ export class SQLiteStorage implements StorageAdapter {
         observations: observations.map(o => ({
           id: String(o.id),
           text: o.content,
+          ...(o.observation_type && { observationType: o.observation_type }),
           ...(o.timestamp && { timestamp: o.timestamp }),
           ...(o.source && { source: o.source }),
         })),

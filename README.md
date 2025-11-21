@@ -178,12 +178,15 @@ Facts and notes associated with entities.
 |--------|------|-------------|
 | `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Unique observation identifier |
 | `entity_id` | INTEGER NOT NULL | **Foreign key** to `entities(id)` |
+| `observation_type` | TEXT NOT NULL DEFAULT '' | Type/category of observation |
 | `content` | TEXT NOT NULL | Observation text |
 | `timestamp` | TEXT | ISO 8601 timestamp |
-| `source` | TEXT | Origin of observation |
+| `source` | TEXT NOT NULL DEFAULT '' | Origin of observation |
 | `created_at` | INTEGER | Unix timestamp of creation |
 
 **Foreign Key:** `entity_id` → `entities(id)` ON DELETE CASCADE
+
+**Unique Constraint:** `(entity_id, observation_type, source)` - one observation per type+source per entity
 
 #### `relations`
 Directed connections between entities.

@@ -253,7 +253,7 @@ describe('KnowledgeGraphManager', () => {
       const result = await kgManager.addObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        contents: [{ text: 'new obs' }]
+        contents: [{ text: 'new obs', observationType: 'note', source: 'added' }]
       }], 'test');
 
       expect(result[0].entityId).toBeDefined();
@@ -273,7 +273,7 @@ describe('KnowledgeGraphManager', () => {
       await kgManager.addObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        contents: [{ text: 'test obs' }]
+        contents: [{ text: 'test obs', observationType: 'note', source: 'added' }]
       }], 'test');
 
       const testGraph = await kgManager.readGraph('test');
@@ -287,11 +287,12 @@ describe('KnowledgeGraphManager', () => {
       await kgManager.deleteObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        text: 'initial'
+        observationType: '',
+        source: ''
       }], 'test');
 
       const graph = await kgManager.readGraph('test');
-      expect(graph.entities[0].observations.map(o => o.text)).not.toContain('initial');
+      expect(graph.entities[0].observations).toHaveLength(0);
     });
   });
 
@@ -548,7 +549,10 @@ describe('KnowledgeGraphManager', () => {
       await kgManager.addObservations([{
         entityName: 'E1',
         entityType: 't',
-        contents: [{ text: 'obs2' }, { text: 'obs3' }]
+        contents: [
+          { text: 'obs2', observationType: 'note', source: 'add1' },
+          { text: 'obs3', observationType: 'note', source: 'add2' }
+        ]
       }], 'test');
 
       await kgManager.createRelations([
