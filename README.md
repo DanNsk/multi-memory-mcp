@@ -290,14 +290,17 @@ Nodes in the knowledge graph with:
   "observations": [
     {
       "id": "1",
+      "observationType": "description",
       "text": "Handles authentication",
       "timestamp": "2025-11-19T10:30:00Z",
       "source": "code-analysis"
     },
     {
       "id": "2",
+      "observationType": "location",
       "text": "Located in src/auth/",
-      "timestamp": "2025-11-19T10:31:00Z"
+      "timestamp": "2025-11-19T10:31:00Z",
+      "source": "code-analysis"
     }
   ]
 }
@@ -346,6 +349,7 @@ Create new entities in the knowledge graph.
       "entityType": "service",
       "observations": [
         {
+          "observationType": "description",
           "text": "Manages user data",
           "timestamp": "2025-11-19T10:00:00Z",
           "source": "code-analysis"
@@ -355,7 +359,7 @@ Create new entities in the knowledge graph.
   ]
 }
 ```
-*Note: `entityType` defaults to empty string if not provided.*
+*Note: `entityType` defaults to empty string. Observations are unique by (entity, observationType, source).*
 
 **Output:**
 ```json
@@ -367,6 +371,7 @@ Create new entities in the knowledge graph.
     "observations": [
       {
         "id": "1",
+        "observationType": "description",
         "text": "Manages user data",
         "timestamp": "2025-11-19T10:00:00Z",
         "source": "code-analysis"
@@ -448,12 +453,15 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
       "entityType": "service",
       "contents": [
         {
+          "observationType": "version",
           "text": "Updated to v2.0",
           "timestamp": "2025-11-19T14:30:00Z",
-          "source": "code-analysis"
+          "source": "changelog"
         },
         {
-          "text": "Added caching"
+          "observationType": "feature",
+          "text": "Added caching",
+          "source": "changelog"
         }
       ]
     }
@@ -470,8 +478,10 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
       "entityId": "1",
       "contents": [
         {
+          "observationType": "version",
           "text": "Updated to v2.0",
-          "timestamp": "2025-11-19T14:30:00Z"
+          "timestamp": "2025-11-19T14:30:00Z",
+          "source": "release-notes"
         }
       ]
     }
@@ -489,14 +499,17 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
     "addedObservations": [
       {
         "id": "3",
+        "observationType": "version",
         "text": "Updated to v2.0",
         "timestamp": "2025-11-19T14:30:00Z",
-        "source": "code-analysis"
+        "source": "changelog"
       },
       {
         "id": "4",
+        "observationType": "feature",
         "text": "Added caching",
-        "timestamp": "2025-11-19T14:30:01Z"
+        "timestamp": "2025-11-19T14:30:01Z",
+        "source": "changelog"
       }
     ]
   }
@@ -541,7 +554,7 @@ Delete entities and their relations. Identify by ID or name/type.
 
 ### delete_observations
 
-Delete specific observations. Identify by observation ID or by entity + text.
+Delete specific observations. Identify by observation ID or by entity + observationType + source.
 
 **Input (using observation ID):**
 ```json
@@ -553,7 +566,7 @@ Delete specific observations. Identify by observation ID or by entity + text.
 }
 ```
 
-**Input (using entity + text):**
+**Input (using entity name + observationType + source):**
 ```json
 {
   "category": "work",
@@ -561,20 +574,22 @@ Delete specific observations. Identify by observation ID or by entity + text.
     {
       "entityName": "UserService",
       "entityType": "service",
-      "text": "Updated to v2.0"
+      "observationType": "version",
+      "source": "changelog"
     }
   ]
 }
 ```
 
-**Input (using entity ID + text):**
+**Input (using entity ID + observationType + source):**
 ```json
 {
   "category": "work",
   "deletions": [
     {
       "entityId": "1",
-      "text": "Updated to v2.0"
+      "observationType": "version",
+      "source": "changelog"
     }
   ]
 }
