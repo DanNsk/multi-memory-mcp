@@ -36,6 +36,9 @@ import type {
   ObservationResult
 } from '../types/graph.js';
 
+// Current schema version - increment when making schema changes
+const SCHEMA_VERSION = 2;
+
 export class SQLiteStorage implements StorageAdapter {
   private db: Database.Database;
 
@@ -44,6 +47,7 @@ export class SQLiteStorage implements StorageAdapter {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.initializeSchema();
+    this.upgradeSchema();
   }
 
   private initializeSchema(): void {
@@ -87,7 +91,152 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
       CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
       CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
+
+      -- Schema version tracking
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY
+      );
     `);
+  }
+
+  private getSchemaVersion(): number {
+    const row = this.db.prepare('SELECT version FROM schema_version ORDER BY version DESC LIMIT 1').get() as { version: number } | undefined;
+    return row?.version ?? 0;
+  }
+
+  private setSchemaVersion(version: number): void {
+    this.db.prepare('INSERT OR REPLACE INTO schema_version (version) VALUES (?)').run(version);
+  }
+
+  private upgradeSchema(): void {
+    const currentVersion = this.getSchemaVersion();
+
+    if (currentVersion < 2) {
+      this.upgradeToVersion2();
+    }
+
+    if (currentVersion < SCHEMA_VERSION) {
+      this.setSchemaVersion(SCHEMA_VERSION);
+    }
+  }
+
+  private upgradeToVersion2(): void {
+    // FTS5 full-text search upgrade
+    this.db.exec(`
+      -- FTS5 virtual table for full-text search
+      CREATE VIRTUAL TABLE IF NOT EXISTS fts_content USING fts5(
+        entity_name,
+        entity_type,
+        observation_content
+      );
+
+      -- Mapping table to link FTS rowids to entities/observations
+      CREATE TABLE IF NOT EXISTS fts_map (
+        fts_rowid INTEGER PRIMARY KEY,
+        entity_id INTEGER NOT NULL,
+        observation_id INTEGER,
+        FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_fts_map_entity ON fts_map(entity_id);
+      CREATE INDEX IF NOT EXISTS idx_fts_map_observation ON fts_map(observation_id);
+    `);
+
+    // Create triggers to keep FTS index synchronized
+    this.db.exec(`
+      -- Trigger: After entity insert - create FTS entry for entity
+      CREATE TRIGGER IF NOT EXISTS fts_entity_insert AFTER INSERT ON entities BEGIN
+        INSERT INTO fts_content (entity_name, entity_type, observation_content)
+        VALUES (NEW.name, NEW.entity_type, '');
+        INSERT INTO fts_map (fts_rowid, entity_id)
+        VALUES (last_insert_rowid(), NEW.id);
+      END;
+
+      -- Trigger: After entity update - update FTS entries
+      CREATE TRIGGER IF NOT EXISTS fts_entity_update AFTER UPDATE ON entities BEGIN
+        -- Update all FTS entries for this entity (entity entry and observation entries)
+        UPDATE fts_content SET entity_name = NEW.name, entity_type = NEW.entity_type
+        WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE entity_id = NEW.id);
+      END;
+
+      -- Trigger: After entity delete - remove FTS entries
+      CREATE TRIGGER IF NOT EXISTS fts_entity_delete AFTER DELETE ON entities BEGIN
+        DELETE FROM fts_content WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE entity_id = OLD.id);
+        DELETE FROM fts_map WHERE entity_id = OLD.id;
+      END;
+
+      -- Trigger: After observation insert - create FTS entry for observation
+      CREATE TRIGGER IF NOT EXISTS fts_observation_insert AFTER INSERT ON observations BEGIN
+        INSERT INTO fts_content (entity_name, entity_type, observation_content)
+        SELECT e.name, e.entity_type, NEW.content
+        FROM entities e WHERE e.id = NEW.entity_id;
+        INSERT INTO fts_map (fts_rowid, entity_id, observation_id)
+        VALUES (last_insert_rowid(), NEW.entity_id, NEW.id);
+      END;
+
+      -- Trigger: After observation update - update FTS entry
+      CREATE TRIGGER IF NOT EXISTS fts_observation_update AFTER UPDATE ON observations BEGIN
+        UPDATE fts_content SET observation_content = NEW.content
+        WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE observation_id = NEW.id);
+      END;
+
+      -- Trigger: After observation delete - remove FTS entry
+      CREATE TRIGGER IF NOT EXISTS fts_observation_delete AFTER DELETE ON observations BEGIN
+        DELETE FROM fts_content WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE observation_id = OLD.id);
+        DELETE FROM fts_map WHERE observation_id = OLD.id;
+      END;
+    `);
+
+    // Populate FTS index from existing data
+    this.rebuildFTSIndex();
+  }
+
+  private rebuildFTSIndex(): void {
+    // Clear existing FTS data
+    this.db.exec('DELETE FROM fts_content');
+    this.db.exec('DELETE FROM fts_map');
+
+    // Index all entities (one entry per entity for entity-level search)
+    const entities = this.db.prepare('SELECT id, name, entity_type FROM entities').all() as Array<{
+      id: number;
+      name: string;
+      entity_type: string;
+    }>;
+
+    const insertFts = this.db.prepare(
+      'INSERT INTO fts_content (entity_name, entity_type, observation_content) VALUES (?, ?, ?)'
+    );
+    const insertMap = this.db.prepare(
+      'INSERT INTO fts_map (fts_rowid, entity_id, observation_id) VALUES (?, ?, ?)'
+    );
+
+    const transaction = this.db.transaction(() => {
+      for (const entity of entities) {
+        // Insert entity entry
+        const result = insertFts.run(entity.name, entity.entity_type, '');
+        insertMap.run(result.lastInsertRowid, entity.id, null);
+      }
+
+      // Index all observations
+      const observations = this.db.prepare(`
+        SELECT o.id as obs_id, o.content, e.id as entity_id, e.name, e.entity_type
+        FROM observations o
+        JOIN entities e ON o.entity_id = e.id
+      `).all() as Array<{
+        obs_id: number;
+        content: string;
+        entity_id: number;
+        name: string;
+        entity_type: string;
+      }>;
+
+      for (const obs of observations) {
+        const result = insertFts.run(obs.name, obs.entity_type, obs.content);
+        insertMap.run(result.lastInsertRowid, obs.entity_id, obs.obs_id);
+      }
+    });
+
+    transaction();
   }
 
   // Helper method to resolve entity by ID or name/type
@@ -430,29 +579,37 @@ export class SQLiteStorage implements StorageAdapter {
   }
 
   async searchNodes(query: string): Promise<KnowledgeGraph> {
-    const searchPattern = `%${query.toLowerCase()}%`;
-
     const entities: Entity[] = [];
     const relations: Relation[] = [];
 
+    // Use FTS5 for full-text search with BM25 ranking
+    // The query supports FTS5 syntax: AND, OR, NOT, "phrases", prefix*
+    const ftsQuery = this.buildFTSQuery(query);
+
+    // Handle empty query by returning empty results
+    if (!ftsQuery) {
+      return { entities: [], relations: [] };
+    }
+
     const entityRows = this.db
       .prepare(
-        `SELECT DISTINCT e.id, e.name, e.entity_type
-         FROM entities e
-         LEFT JOIN observations o ON e.id = o.entity_id
-         WHERE LOWER(e.name) LIKE ?
-            OR LOWER(e.entity_type) LIKE ?
-            OR LOWER(o.content) LIKE ?`
+        `SELECT DISTINCT fm.entity_id as id, e.name, e.entity_type,
+                MIN(fts_content.rank) as score
+         FROM fts_content, fts_map fm, entities e
+         WHERE fts_content MATCH ?
+           AND fts_content.rowid = fm.fts_rowid
+           AND fm.entity_id = e.id
+         GROUP BY fm.entity_id
+         ORDER BY score`
       )
-      .all(searchPattern, searchPattern, searchPattern) as Array<{
+      .all(ftsQuery) as Array<{
       id: number;
       name: string;
       entity_type: string;
+      score: number;
     }>;
 
-    const entityIdSet = new Set<number>();
     for (const row of entityRows) {
-      entityIdSet.add(row.id);
       const observations = this.db
         .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
         .all(row.id) as Array<{ id: number; observation_type: string; content: string; timestamp: string | null; source: string }>;
@@ -502,6 +659,32 @@ export class SQLiteStorage implements StorageAdapter {
     }
 
     return { entities, relations };
+  }
+
+  private buildFTSQuery(query: string): string {
+    // Check if query already contains FTS5 operators
+    const ftsOperators = /\b(AND|OR|NOT|NEAR)\b|[*"()]/;
+    if (ftsOperators.test(query)) {
+      // Query contains FTS5 syntax, use as-is
+      return query;
+    }
+
+    // Convert simple query to FTS5 format
+    // Split into terms and join with AND for all-terms matching
+    const terms = query.trim().split(/\s+/).filter(t => t.length > 0);
+    if (terms.length === 0) {
+      return ''; // Empty query returns no results
+    }
+
+    // Escape special characters and add prefix matching for each term
+    const escapedTerms = terms.map(term => {
+      // Escape quotes
+      const escaped = term.replace(/"/g, '""');
+      // Add prefix matching with * for partial matches
+      return `"${escaped}"*`;
+    });
+
+    return escapedTerms.join(' AND ');
   }
 
   async openNodes(entityRefs: EntityReference[]): Promise<KnowledgeGraph> {

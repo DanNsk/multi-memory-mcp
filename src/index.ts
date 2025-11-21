@@ -296,7 +296,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "search_nodes",
-        description: "Search for nodes by query string. Returns matching entities and relations with their IDs.",
+        description: "Full-text search with BM25 ranking. Returns matching entities sorted by relevance. Supports FTS5 query syntax: simple terms (auth), phrases (\"user auth\"), AND/OR/NOT operators (user AND auth), prefix matching (auth*), proximity search (NEAR(user auth, 5)). Simple queries auto-convert to prefix-matching AND search.",
         inputSchema: {
           type: "object",
           properties: {
@@ -304,7 +304,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Memory category. Defaults to 'default'",
             },
-            query: { type: "string", description: "Search query to match against entity names, types, and observations" },
+            query: { type: "string", description: "FTS5 search query. Examples: 'authentication', 'user AND auth', '\"user authentication\"', 'auth*', 'user OR admin'" },
           },
           required: ["query"],
           additionalProperties: false,
