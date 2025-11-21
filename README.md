@@ -191,14 +191,16 @@ Directed connections between entities.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Unique relation identifier |
-| `from_entity` | TEXT NOT NULL | Source entity name |
-| `from_type` | TEXT NOT NULL | Source entity type |
-| `to_entity` | TEXT NOT NULL | Target entity name |
-| `to_type` | TEXT NOT NULL | Target entity type |
+| `from_entity_id` | INTEGER NOT NULL | **Foreign key** to `entities(id)` - source entity |
+| `to_entity_id` | INTEGER NOT NULL | **Foreign key** to `entities(id)` - target entity |
 | `relation_type` | TEXT NOT NULL | Type of relationship |
 | `created_at` | INTEGER | Unix timestamp of creation |
 
-**Unique Constraint:** `(from_entity, from_type, to_entity, to_type, relation_type)`
+**Foreign Keys:**
+- `from_entity_id` → `entities(id)` ON DELETE CASCADE
+- `to_entity_id` → `entities(id)` ON DELETE CASCADE
+
+**Unique Constraint:** `(from_entity_id, to_entity_id, relation_type)`
 
 ### Indexes
 
@@ -213,39 +215,42 @@ Directed connections between entities.
 ### Entity Relationship Diagram
 
 ```
-┌─────────────┐
-│  entities   │
-├─────────────┤
-│ id (PK)     │──────────┐
-│ name        │          │
-│ entity_type │          │
-│ created_at  │          │
-│ updated_at  │          │
-└─────────────┘          │
-                         │
-┌─────────────┐          │
-│ observations│          │
-├─────────────┤          │
-│ id (PK)     │          │
-│ entity_id   │──────────┘  (FK: ON DELETE CASCADE)
-│ content     │
-│ timestamp   │
-│ source      │
-│ created_at  │
-└─────────────┘
-
-┌─────────────┐
-│  relations  │
-├─────────────┤
-│ id (PK)     │
-│ from_entity │ (references entities by name+type)
-│ from_type   │
-│ to_entity   │ (references entities by name+type)
-│ to_type     │
-│ relation_type│
-│ created_at  │
-└─────────────┘
+┌─────────────────┐
+│    entities     │
+├─────────────────┤
+│ id (PK)         │◄─────────────┬──────────────┐
+│ name            │              │              │
+│ entity_type     │              │              │
+│ created_at      │              │              │
+│ updated_at      │              │              │
+└─────────────────┘              │              │
+                                 │              │
+┌─────────────────┐              │              │
+│  observations   │              │              │
+├─────────────────┤              │              │
+│ id (PK)         │              │              │
+│ entity_id (FK)  │──────────────┘              │
+│ content         │  (ON DELETE CASCADE)        │
+│ timestamp       │                             │
+│ source          │                             │
+│ created_at      │                             │
+└─────────────────┘                             │
+                                                │
+┌─────────────────┐                             │
+│   relations     │                             │
+├─────────────────┤                             │
+│ id (PK)         │                             │
+│ from_entity_id  │─────────────────────────────┤
+│ to_entity_id    │─────────────────────────────┘
+│ relation_type   │  (Both FK: ON DELETE CASCADE)
+│ created_at      │
+└─────────────────┘
 ```
+
+**Notes:**
+- All IDs are auto-generated integers
+- Deleting an entity cascades to delete all its observations and relations
+- Relations store entity IDs, but API accepts name/type which is resolved to IDs
 
 ## Core Concepts
 
