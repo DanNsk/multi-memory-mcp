@@ -6,9 +6,10 @@ A multi-category knowledge graph memory server using SQLite for persistent stora
 - SQLite database storage with proper indexing and transactions
 - Multi-category support with isolated memory contexts
 - LRU connection cache (prevents memory leaks)
-- Schema versioning system
+- **ID-based operations** - all objects have unique IDs for precise operations
+- **Dual identification** - use ID or name/type composite key
 - SQL injection protection
-- Full test coverage (134 tests)
+- Full test coverage (141 tests)
 
 ## Quick Start
 
@@ -138,18 +139,113 @@ JSON (standard):
 ```json
 {
   "entities": [
-    {"name": "AuthService", "entityType": "module", "observations": []}
+    {"id": "1", "name": "AuthService", "entityType": "module", "observations": []}
   ]
 }
 ```
 
 TOON (compact):
 ```
-entities[1]{name,entityType,observations}:
-  AuthService,module,[]
+entities[1]{id,name,entityType,observations}:
+  1,AuthService,module,[]
 ```
 
 See [TOON specification](https://github.com/toon-format/spec) for full format details.
+
+## Database Schema
+
+Each category stores data in a separate SQLite database with the following schema:
+
+### Tables
+
+#### `entities`
+Primary storage for graph nodes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Unique entity identifier |
+| `name` | TEXT NOT NULL | Entity name |
+| `entity_type` | TEXT NOT NULL | Entity classification type |
+| `created_at` | INTEGER | Unix timestamp of creation |
+| `updated_at` | INTEGER | Unix timestamp of last update |
+
+**Unique Constraint:** `(name, entity_type)` - entities are identified by name+type combination
+
+#### `observations`
+Facts and notes associated with entities.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Unique observation identifier |
+| `entity_id` | INTEGER NOT NULL | **Foreign key** to `entities(id)` |
+| `content` | TEXT NOT NULL | Observation text |
+| `timestamp` | TEXT | ISO 8601 timestamp |
+| `source` | TEXT | Origin of observation |
+| `created_at` | INTEGER | Unix timestamp of creation |
+
+**Foreign Key:** `entity_id` → `entities(id)` ON DELETE CASCADE
+
+#### `relations`
+Directed connections between entities.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Unique relation identifier |
+| `from_entity` | TEXT NOT NULL | Source entity name |
+| `from_type` | TEXT NOT NULL | Source entity type |
+| `to_entity` | TEXT NOT NULL | Target entity name |
+| `to_type` | TEXT NOT NULL | Target entity type |
+| `relation_type` | TEXT NOT NULL | Type of relationship |
+| `created_at` | INTEGER | Unix timestamp of creation |
+
+**Unique Constraint:** `(from_entity, from_type, to_entity, to_type, relation_type)`
+
+### Indexes
+
+- `idx_entities_name` - Fast lookup by entity name
+- `idx_entities_type` - Fast lookup by entity type
+- `idx_entities_name_type` - Fast lookup by name+type combination
+- `idx_observations_entity` - Fast lookup of observations by entity
+- `idx_relations_from` - Fast lookup by source entity
+- `idx_relations_to` - Fast lookup by target entity
+- `idx_relations_type` - Fast lookup by relation type
+
+### Entity Relationship Diagram
+
+```
+┌─────────────┐
+│  entities   │
+├─────────────┤
+│ id (PK)     │──────────┐
+│ name        │          │
+│ entity_type │          │
+│ created_at  │          │
+│ updated_at  │          │
+└─────────────┘          │
+                         │
+┌─────────────┐          │
+│ observations│          │
+├─────────────┤          │
+│ id (PK)     │          │
+│ entity_id   │──────────┘  (FK: ON DELETE CASCADE)
+│ content     │
+│ timestamp   │
+│ source      │
+│ created_at  │
+└─────────────┘
+
+┌─────────────┐
+│  relations  │
+├─────────────┤
+│ id (PK)     │
+│ from_entity │ (references entities by name+type)
+│ from_type   │
+│ to_entity   │ (references entities by name+type)
+│ to_type     │
+│ relation_type│
+│ created_at  │
+└─────────────┘
+```
 
 ## Core Concepts
 
@@ -173,21 +269,25 @@ Organize memories into separate isolated databases. Each category has its own SQ
 ### Entities
 
 Nodes in the knowledge graph with:
-- Unique name (identifier)
-- Type (e.g., "module", "class", "person", "project")
-- List of observations (structured with text, timestamp, and source)
+- **id** - Unique numeric identifier (auto-generated)
+- **name** - Human-readable identifier
+- **entityType** - Classification (e.g., "module", "class", "person", "project")
+- **observations** - List of facts with metadata
 
 ```json
 {
+  "id": "1",
   "name": "AuthService",
   "entityType": "module",
   "observations": [
     {
+      "id": "1",
       "text": "Handles authentication",
       "timestamp": "2025-11-19T10:30:00Z",
       "source": "code-analysis"
     },
     {
+      "id": "2",
       "text": "Located in src/auth/",
       "timestamp": "2025-11-19T10:31:00Z"
     }
@@ -197,52 +297,38 @@ Nodes in the knowledge graph with:
 
 ### Relations
 
-Directed connections between entities (active voice):
+Directed connections between entities with their own IDs:
 
 ```json
 {
+  "id": "1",
   "from": "APIController",
+  "fromType": "controller",
   "to": "AuthService",
+  "toType": "module",
   "relationType": "depends_on"
 }
 ```
 
-### Observations
+### Dual Identification
 
-Atomic facts about entities with rich metadata:
+All operations support identifying objects by either:
+- **ID** - Fast, precise, unambiguous
+- **Name/Type** - Human-friendly composite key
 
-```json
-{
-  "entityName": "AuthService",
-  "observations": [
-    {
-      "text": "Uses JWT tokens",
-      "timestamp": "2025-11-19T10:30:00Z",
-      "source": "code-analysis"
-    },
-    {
-      "text": "Connects to user database",
-      "timestamp": "2025-11-19T10:31:15Z"
-    },
-    {
-      "text": "Critical for security - requires review"
-    }
-  ]
-}
-```
-
-**Observation fields:**
-- `text` (required): The observation content
-- `timestamp` (optional): ISO 8601 timestamp, defaults to current time if not provided
-- `source` (optional): Source indicator (e.g., "code-analysis", "user-input", "documentation")
+This allows flexibility when you have the ID (e.g., from a previous response) or need to reference by name.
 
 ## API Tools
 
 All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
 
-### Entity Operations
+---
 
-**create_entities** - Create new entities
+### create_entities
+
+Create new entities in the knowledge graph.
+
+**Input:**
 ```json
 {
   "category": "work",
@@ -253,6 +339,7 @@ All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
       "observations": [
         {
           "text": "Manages user data",
+          "timestamp": "2025-11-19T10:00:00Z",
           "source": "code-analysis"
         }
       ]
@@ -260,42 +347,97 @@ All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
   ]
 }
 ```
+*Note: `entityType` defaults to empty string if not provided.*
 
-**delete_entities** - Remove entities and their relations
+**Output:**
 ```json
-{
-  "category": "work",
-  "entityNames": ["UserService"]
-}
+[
+  {
+    "id": "1",
+    "name": "UserService",
+    "entityType": "service",
+    "observations": [
+      {
+        "id": "1",
+        "text": "Manages user data",
+        "timestamp": "2025-11-19T10:00:00Z",
+        "source": "code-analysis"
+      }
+    ]
+  }
+]
 ```
 
-### Relation Operations
+---
 
-**create_relations** - Create entity relationships
+### create_relations
+
+Create relationships between entities. Each endpoint can be specified by ID or name/type.
+
+**Input (using name/type):**
 ```json
 {
   "category": "work",
   "relations": [
     {
-      "from": "APIController",
-      "to": "UserService",
+      "from": {
+        "name": "APIController",
+        "type": "controller"
+      },
+      "to": {
+        "name": "UserService",
+        "type": "service"
+      },
       "relationType": "uses"
     }
   ]
 }
 ```
+*Note: `type` defaults to empty string if not provided.*
 
-**delete_relations** - Remove specific relations
+**Input (using IDs):**
+```json
+{
+  "category": "work",
+  "relations": [
+    {
+      "from": { "id": "1" },
+      "to": { "id": "2" },
+      "relationType": "uses"
+    }
+  ]
+}
+```
+*Note: You can mix ID and name/type - e.g., `from` by ID and `to` by name/type.*
 
-### Observation Operations
+**Output:**
+```json
+[
+  {
+    "id": "1",
+    "from": "APIController",
+    "fromType": "controller",
+    "to": "UserService",
+    "toType": "service",
+    "relationType": "uses"
+  }
+]
+```
 
-**add_observations** - Add facts to existing entities
+---
+
+### add_observations
+
+Add observations to existing entities. Entity can be identified by ID or name/type.
+
+**Input (using name/type):**
 ```json
 {
   "category": "work",
   "observations": [
     {
       "entityName": "UserService",
+      "entityType": "service",
       "contents": [
         {
           "text": "Updated to v2.0",
@@ -311,18 +453,217 @@ All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
 }
 ```
 
-**delete_observations** - Remove specific observations
+**Input (using entity ID):**
+```json
+{
+  "category": "work",
+  "observations": [
+    {
+      "entityId": "1",
+      "contents": [
+        {
+          "text": "Updated to v2.0",
+          "timestamp": "2025-11-19T14:30:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
 
-### Query Operations
+**Output:**
+```json
+[
+  {
+    "entityId": "1",
+    "entityName": "UserService",
+    "entityType": "service",
+    "addedObservations": [
+      {
+        "id": "3",
+        "text": "Updated to v2.0",
+        "timestamp": "2025-11-19T14:30:00Z",
+        "source": "code-analysis"
+      },
+      {
+        "id": "4",
+        "text": "Added caching",
+        "timestamp": "2025-11-19T14:30:01Z"
+      }
+    ]
+  }
+]
+```
 
-**read_graph** - Get entire graph for a category
+---
+
+### delete_entities
+
+Delete entities and their relations. Identify by ID or name/type.
+
+**Input (using name/type):**
+```json
+{
+  "category": "work",
+  "entities": [
+    {
+      "name": "UserService",
+      "entityType": "service"
+    }
+  ]
+}
+```
+
+**Input (using ID):**
+```json
+{
+  "category": "work",
+  "entities": [
+    { "id": "1" }
+  ]
+}
+```
+
+**Output:**
+```
+"Entities deleted successfully"
+```
+
+---
+
+### delete_observations
+
+Delete specific observations. Identify by observation ID or by entity + text.
+
+**Input (using observation ID):**
+```json
+{
+  "category": "work",
+  "deletions": [
+    { "id": "3" }
+  ]
+}
+```
+
+**Input (using entity + text):**
+```json
+{
+  "category": "work",
+  "deletions": [
+    {
+      "entityName": "UserService",
+      "entityType": "service",
+      "text": "Updated to v2.0"
+    }
+  ]
+}
+```
+
+**Input (using entity ID + text):**
+```json
+{
+  "category": "work",
+  "deletions": [
+    {
+      "entityId": "1",
+      "text": "Updated to v2.0"
+    }
+  ]
+}
+```
+
+**Output:**
+```
+"Observations deleted successfully"
+```
+
+---
+
+### delete_relations
+
+Delete relations. Identify by relation ID or composite key.
+
+**Input (using relation ID):**
+```json
+{
+  "category": "work",
+  "relations": [
+    { "id": "1" }
+  ]
+}
+```
+
+**Input (using composite key):**
+```json
+{
+  "category": "work",
+  "relations": [
+    {
+      "from": "APIController",
+      "fromType": "controller",
+      "to": "UserService",
+      "toType": "service",
+      "relationType": "uses"
+    }
+  ]
+}
+```
+
+**Output:**
+```
+"Relations deleted successfully"
+```
+
+---
+
+### read_graph
+
+Get entire knowledge graph for a category.
+
+**Input:**
 ```json
 {
   "category": "work"
 }
 ```
 
-**search_nodes** - Search by name, type, or observation content
+**Output:**
+```json
+{
+  "entities": [
+    {
+      "id": "1",
+      "name": "UserService",
+      "entityType": "service",
+      "observations": [
+        {
+          "id": "1",
+          "text": "Manages user data",
+          "timestamp": "2025-11-19T10:00:00Z"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "1",
+      "from": "APIController",
+      "fromType": "controller",
+      "to": "UserService",
+      "toType": "service",
+      "relationType": "uses"
+    }
+  ]
+}
+```
+
+---
+
+### search_nodes
+
+Search by name, type, or observation content.
+
+**Input:**
 ```json
 {
   "category": "work",
@@ -330,24 +671,135 @@ All tools accept optional `category` parameter (defaults to `DEFAULT_CATEGORY`).
 }
 ```
 
-**open_nodes** - Get specific entities by name
+**Output:**
 ```json
 {
-  "category": "work",
-  "names": ["UserService", "AuthService"]
+  "entities": [
+    {
+      "id": "2",
+      "name": "AuthService",
+      "entityType": "service",
+      "observations": [
+        {
+          "id": "5",
+          "text": "Handles authentication",
+          "timestamp": "2025-11-19T10:30:00Z"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "3",
+      "from": "APIController",
+      "fromType": "controller",
+      "to": "AuthService",
+      "toType": "service",
+      "relationType": "uses"
+    }
+  ]
 }
 ```
 
-### Category Management
+---
 
-**list_categories** - Get all category names
+### open_nodes
 
-**delete_category** - Remove entire category and database
+Get specific entities. Identify by ID or name/type.
+
+**Input (using name/type):**
+```json
+{
+  "category": "work",
+  "entities": [
+    {
+      "name": "UserService",
+      "entityType": "service"
+    },
+    {
+      "name": "AuthService",
+      "entityType": "service"
+    }
+  ]
+}
+```
+
+**Input (using IDs):**
+```json
+{
+  "category": "work",
+  "entities": [
+    { "id": "1" },
+    { "id": "2" }
+  ]
+}
+```
+
+**Output:**
+```json
+{
+  "entities": [
+    {
+      "id": "1",
+      "name": "UserService",
+      "entityType": "service",
+      "observations": [...]
+    },
+    {
+      "id": "2",
+      "name": "AuthService",
+      "entityType": "service",
+      "observations": [...]
+    }
+  ],
+  "relations": [
+    {
+      "id": "2",
+      "from": "UserService",
+      "fromType": "service",
+      "to": "AuthService",
+      "toType": "service",
+      "relationType": "depends_on"
+    }
+  ]
+}
+```
+
+---
+
+### list_categories
+
+Get all available category names.
+
+**Input:**
+```json
+{}
+```
+
+**Output:**
+```json
+["work", "personal", "project-alpha"]
+```
+
+---
+
+### delete_category
+
+Delete entire category and its database.
+
+**Input:**
 ```json
 {
   "category": "old-project"
 }
 ```
+
+**Output:**
+```
+"Category 'old-project' deleted successfully"
+```
+
+---
 
 ## Use Cases
 
@@ -388,10 +840,25 @@ Track module dependencies per project:
         }
       ]
     }
-  ],
+  ]
+}
+```
+
+Then create relations:
+```json
+{
+  "category": "backend-service",
   "relations": [
-    {"from": "AuthModule", "to": "UserModule", "relationType": "imports"},
-    {"from": "AuthModule", "to": "Database", "relationType": "uses"}
+    {
+      "from": { "name": "AuthModule", "type": "module" },
+      "to": { "name": "UserModule", "type": "module" },
+      "relationType": "imports"
+    },
+    {
+      "from": { "name": "AuthModule", "type": "module" },
+      "to": { "name": "Database", "type": "library" },
+      "relationType": "uses"
+    }
   ]
 }
 ```
@@ -427,7 +894,7 @@ bun run watch      # Watch mode
 ### Testing
 
 ```bash
-bun test           # Run all tests (134 tests)
+bun test           # Run all tests (141 tests)
 ```
 
 Coverage: SQLiteStorage 98%, CategoryManager 87%, KnowledgeGraphManager 100%
@@ -457,7 +924,7 @@ tests/
 ### Storage
 
 - **Database**: SQLite 3 with WAL mode
-- **Schema Version**: 2 (tracked in database, auto-migrates from v1)
+- **Schema**: Single version, clean slate
 - **Indexes**: On entity names, types, relations
 - **Transactions**: ACID-compliant operations
 - **Connection Limit**: Max 50 concurrent (LRU eviction)
@@ -487,10 +954,6 @@ SQLite uses WAL mode which allows concurrent reads. If you get lock errors:
 ### Memory growing over time
 
 CategoryManager implements LRU cache with default 50 connection limit. Oldest connections automatically closed when limit reached.
-
-### Schema version mismatch
-
-Database created with different schema version. No automatic migration implemented. Delete old database or manually migrate.
 
 ## License
 

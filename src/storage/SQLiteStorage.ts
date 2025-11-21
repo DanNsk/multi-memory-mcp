@@ -23,9 +23,18 @@ SOFTWARE.
 */
 
 import Database from 'better-sqlite3';
-import type { Entity, Relation, KnowledgeGraph, StorageAdapter, Observation, EntityReference } from '../types/graph.js';
-
-const CURRENT_SCHEMA_VERSION = 3;
+import type {
+  Entity,
+  Relation,
+  KnowledgeGraph,
+  StorageAdapter,
+  Observation,
+  EntityReference,
+  RelationInput,
+  RelationIdentifier,
+  ObservationIdentifier,
+  ObservationResult
+} from '../types/graph.js';
 
 export class SQLiteStorage implements StorageAdapter {
   private db: Database.Database;
@@ -38,11 +47,6 @@ export class SQLiteStorage implements StorageAdapter {
 
   private initializeSchema(): void {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS schema_version (
-        version INTEGER PRIMARY KEY,
-        applied_at INTEGER DEFAULT (unixepoch())
-      );
-
       CREATE TABLE IF NOT EXISTS entities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -81,104 +85,29 @@ export class SQLiteStorage implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity, to_type);
       CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
     `);
-
-    this.ensureSchemaVersion();
   }
 
-  private ensureSchemaVersion(): void {
-    const versionRow = this.db
-      .prepare('SELECT version FROM schema_version LIMIT 1')
-      .get() as { version: number } | undefined;
-
-    if (!versionRow) {
-      this.db
-        .prepare('INSERT INTO schema_version (version) VALUES (?)')
-        .run(CURRENT_SCHEMA_VERSION);
-    } else if (versionRow.version < CURRENT_SCHEMA_VERSION) {
-      this.migrateSchema(versionRow.version, CURRENT_SCHEMA_VERSION);
-    } else if (versionRow.version > CURRENT_SCHEMA_VERSION) {
-      throw new Error(
-        `Database schema version mismatch. Expected ${CURRENT_SCHEMA_VERSION}, found ${versionRow.version}. Database is newer than this version of the software.`
-      );
-    }
-  }
-
-  private migrateSchema(fromVersion: number, toVersion: number): void {
-    console.log(`Migrating database schema from version ${fromVersion} to ${toVersion}`);
-
-    if (fromVersion === 1 && toVersion >= 2) {
-      // Add timestamp and source columns to observations table
-      this.db.exec(`
-        ALTER TABLE observations ADD COLUMN timestamp TEXT;
-        ALTER TABLE observations ADD COLUMN source TEXT;
-      `);
-      this.db.prepare('UPDATE schema_version SET version = ?').run(2);
-      console.log('Migration to version 2 complete: Added timestamp and source columns to observations');
-      fromVersion = 2;
+  // Helper method to resolve entity by ID or name/type
+  private resolveEntity(ref: { id?: string; name?: string; type?: string } | { id?: string; name?: string; entityType?: string }): { id: number; name: string; entityType: string } | null {
+    if (ref.id) {
+      const row = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE id = ?').get(ref.id) as { id: number; name: string; entity_type: string } | undefined;
+      if (row) {
+        return { id: row.id, name: row.name, entityType: row.entity_type };
+      }
+      return null;
     }
 
-    if (fromVersion === 2 && toVersion >= 3) {
-      // Migrate to composite unique key (name, entity_type) for entities
-      // and add from_type/to_type columns to relations
-      this.db.exec(`
-        -- Create new entities table with composite unique key
-        CREATE TABLE entities_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          entity_type TEXT NOT NULL,
-          created_at INTEGER DEFAULT (unixepoch()),
-          updated_at INTEGER DEFAULT (unixepoch()),
-          UNIQUE(name, entity_type)
-        );
+    const name = ref.name;
+    const entityType = 'type' in ref ? ref.type : ('entityType' in ref ? ref.entityType : '');
 
-        -- Copy data from old entities table
-        INSERT INTO entities_new (id, name, entity_type, created_at, updated_at)
-        SELECT id, name, entity_type, created_at, updated_at FROM entities;
-
-        -- Drop old table and rename new one
-        DROP TABLE entities;
-        ALTER TABLE entities_new RENAME TO entities;
-
-        -- Create new relations table with from_type and to_type
-        CREATE TABLE relations_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          from_entity TEXT NOT NULL,
-          from_type TEXT NOT NULL,
-          to_entity TEXT NOT NULL,
-          to_type TEXT NOT NULL,
-          relation_type TEXT NOT NULL,
-          created_at INTEGER DEFAULT (unixepoch()),
-          UNIQUE(from_entity, from_type, to_entity, to_type, relation_type)
-        );
-
-        -- Migrate relations data, looking up entity types
-        INSERT INTO relations_new (from_entity, from_type, to_entity, to_type, relation_type, created_at)
-        SELECT
-          r.from_entity,
-          COALESCE(e1.entity_type, 'unknown'),
-          r.to_entity,
-          COALESCE(e2.entity_type, 'unknown'),
-          r.relation_type,
-          r.created_at
-        FROM relations r
-        LEFT JOIN entities e1 ON r.from_entity = e1.name
-        LEFT JOIN entities e2 ON r.to_entity = e2.name;
-
-        -- Drop old relations table and rename new one
-        DROP TABLE relations;
-        ALTER TABLE relations_new RENAME TO relations;
-
-        -- Recreate indexes
-        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
-        CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type);
-        CREATE INDEX IF NOT EXISTS idx_entities_name_type ON entities(name, entity_type);
-        CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity, from_type);
-        CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity, to_type);
-        CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
-      `);
-      this.db.prepare('UPDATE schema_version SET version = ?').run(3);
-      console.log('Migration to version 3 complete: Added composite unique key for entities and entity types for relations');
+    if (name !== undefined) {
+      const row = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE name = ? AND entity_type = ?').get(name, entityType || '') as { id: number; name: string; entity_type: string } | undefined;
+      if (row) {
+        return { id: row.id, name: row.name, entityType: row.entity_type };
+      }
     }
+
+    return null;
   }
 
   async loadGraph(): Promise<KnowledgeGraph> {
@@ -193,13 +122,15 @@ export class SQLiteStorage implements StorageAdapter {
 
     for (const row of entityRows) {
       const observations = this.db
-        .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ content: string; timestamp: string | null; source: string | null }>;
+        .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ id: number; content: string; timestamp: string | null; source: string | null }>;
 
       entities.push({
+        id: String(row.id),
         name: row.name,
         entityType: row.entity_type,
         observations: observations.map(o => ({
+          id: String(o.id),
           text: o.content,
           ...(o.timestamp && { timestamp: o.timestamp }),
           ...(o.source && { source: o.source }),
@@ -208,11 +139,12 @@ export class SQLiteStorage implements StorageAdapter {
     }
 
     const relationRows = this.db
-      .prepare('SELECT from_entity, from_type, to_entity, to_type, relation_type FROM relations')
-      .all() as Array<{ from_entity: string; from_type: string; to_entity: string; to_type: string; relation_type: string }>;
+      .prepare('SELECT id, from_entity, from_type, to_entity, to_type, relation_type FROM relations')
+      .all() as Array<{ id: number; from_entity: string; from_type: string; to_entity: string; to_type: string; relation_type: string }>;
 
     for (const row of relationRows) {
       relations.push({
+        id: String(row.id),
         from: row.from_entity,
         fromType: row.from_type,
         to: row.to_entity,
@@ -231,7 +163,7 @@ export class SQLiteStorage implements StorageAdapter {
     const insertObservation = this.db.prepare(
       'INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)'
     );
-    const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ? AND entity_type = ?');
+    const getEntity = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE name = ? AND entity_type = ?');
 
     const newEntities: Entity[] = [];
 
@@ -239,12 +171,26 @@ export class SQLiteStorage implements StorageAdapter {
       for (const entity of entitiesToCreate) {
         const result = insertEntity.run(entity.name, entity.entityType);
         if (result.changes > 0) {
-          const entityId = (getEntityId.get(entity.name, entity.entityType) as { id: number }).id;
+          const entityRow = getEntity.get(entity.name, entity.entityType) as { id: number; name: string; entity_type: string };
+          const observationsWithIds: Observation[] = [];
+
           for (const observation of entity.observations) {
             const timestamp = observation.timestamp || new Date().toISOString();
-            insertObservation.run(entityId, observation.text, timestamp, observation.source || null);
+            const obsResult = insertObservation.run(entityRow.id, observation.text, timestamp, observation.source || null);
+            observationsWithIds.push({
+              id: String(obsResult.lastInsertRowid),
+              text: observation.text,
+              timestamp,
+              ...(observation.source && { source: observation.source }),
+            });
           }
-          newEntities.push(entity);
+
+          newEntities.push({
+            id: String(entityRow.id),
+            name: entity.name,
+            entityType: entity.entityType,
+            observations: observationsWithIds,
+          });
         }
       }
     });
@@ -253,38 +199,57 @@ export class SQLiteStorage implements StorageAdapter {
     return newEntities;
   }
 
-  async createRelations(relations: Relation[]): Promise<Relation[]> {
+  async createRelations(relations: RelationInput[]): Promise<Relation[]> {
     const insertRelation = this.db.prepare(
       'INSERT OR IGNORE INTO relations (from_entity, from_type, to_entity, to_type, relation_type) VALUES (?, ?, ?, ?, ?)'
     );
-    const checkEntityExists = this.db.prepare(
-      'SELECT 1 FROM entities WHERE name = ? AND entity_type = ?'
+    const getRelation = this.db.prepare(
+      'SELECT id FROM relations WHERE from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ? AND relation_type = ?'
     );
 
     const newRelations: Relation[] = [];
 
-    const transaction = this.db.transaction((relationsToCreate: Relation[]) => {
+    const transaction = this.db.transaction((relationsToCreate: RelationInput[]) => {
       for (const relation of relationsToCreate) {
-        // Verify both entities exist
-        const fromExists = checkEntityExists.get(relation.from, relation.fromType);
-        if (!fromExists) {
-          throw new Error(`Entity '${relation.from}' with type '${relation.fromType}' not found`);
+        // Resolve from entity
+        const fromEntity = this.resolveEntity(relation.from);
+        if (!fromEntity) {
+          const identifier = relation.from.id ? `id '${relation.from.id}'` : `name '${relation.from.name}' with type '${relation.from.type || ''}'`;
+          throw new Error(`Entity with ${identifier} not found`);
         }
 
-        const toExists = checkEntityExists.get(relation.to, relation.toType);
-        if (!toExists) {
-          throw new Error(`Entity '${relation.to}' with type '${relation.toType}' not found`);
+        // Resolve to entity
+        const toEntity = this.resolveEntity(relation.to);
+        if (!toEntity) {
+          const identifier = relation.to.id ? `id '${relation.to.id}'` : `name '${relation.to.name}' with type '${relation.to.type || ''}'`;
+          throw new Error(`Entity with ${identifier} not found`);
         }
 
         const result = insertRelation.run(
-          relation.from,
-          relation.fromType,
-          relation.to,
-          relation.toType,
+          fromEntity.name,
+          fromEntity.entityType,
+          toEntity.name,
+          toEntity.entityType,
           relation.relationType
         );
+
         if (result.changes > 0) {
-          newRelations.push(relation);
+          const relationRow = getRelation.get(
+            fromEntity.name,
+            fromEntity.entityType,
+            toEntity.name,
+            toEntity.entityType,
+            relation.relationType
+          ) as { id: number };
+
+          newRelations.push({
+            id: String(relationRow.id),
+            from: fromEntity.name,
+            fromType: fromEntity.entityType,
+            to: toEntity.name,
+            toType: toEntity.entityType,
+            relationType: relation.relationType,
+          });
         }
       }
     });
@@ -294,9 +259,8 @@ export class SQLiteStorage implements StorageAdapter {
   }
 
   async addObservations(
-    observations: { entityName: string; entityType: string; contents: Observation[] }[]
-  ): Promise<{ entityName: string; entityType: string; addedObservations: Observation[] }[]> {
-    const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ? AND entity_type = ?');
+    observations: { entityId?: string; entityName?: string; entityType?: string; contents: Observation[] }[]
+  ): Promise<ObservationResult[]> {
     const getExistingObservations = this.db.prepare(
       'SELECT content FROM observations WHERE entity_id = ?'
     );
@@ -304,24 +268,32 @@ export class SQLiteStorage implements StorageAdapter {
       'INSERT INTO observations (entity_id, content, timestamp, source) VALUES (?, ?, ?, ?)'
     );
 
-    const results: { entityName: string; entityType: string; addedObservations: Observation[] }[] = [];
+    const results: ObservationResult[] = [];
 
     const transaction = this.db.transaction((observationsToAdd: typeof observations) => {
       for (const obs of observationsToAdd) {
-        const entityRow = getEntityId.get(obs.entityName, obs.entityType) as { id: number } | undefined;
-        if (!entityRow) {
-          throw new Error(`Entity with name ${obs.entityName} and type ${obs.entityType} not found`);
+        // Resolve entity by ID or name/type
+        const entity = this.resolveEntity({
+          id: obs.entityId,
+          name: obs.entityName,
+          entityType: obs.entityType
+        });
+
+        if (!entity) {
+          const identifier = obs.entityId ? `id '${obs.entityId}'` : `name '${obs.entityName}' with type '${obs.entityType || ''}'`;
+          throw new Error(`Entity with ${identifier} not found`);
         }
 
-        const existingObs = getExistingObservations.all(entityRow.id) as Array<{ content: string }>;
+        const existingObs = getExistingObservations.all(entity.id) as Array<{ content: string }>;
         const existingSet = new Set(existingObs.map(o => o.content));
 
         const addedObservations: Observation[] = [];
         for (const observation of obs.contents) {
           if (!existingSet.has(observation.text)) {
             const timestamp = observation.timestamp || new Date().toISOString();
-            insertObservation.run(entityRow.id, observation.text, timestamp, observation.source || null);
+            const obsResult = insertObservation.run(entity.id, observation.text, timestamp, observation.source || null);
             addedObservations.push({
+              id: String(obsResult.lastInsertRowid),
               text: observation.text,
               timestamp,
               ...(observation.source && { source: observation.source }),
@@ -329,7 +301,12 @@ export class SQLiteStorage implements StorageAdapter {
           }
         }
 
-        results.push({ entityName: obs.entityName, entityType: obs.entityType, addedObservations });
+        results.push({
+          entityId: String(entity.id),
+          entityName: entity.name,
+          entityType: entity.entityType,
+          addedObservations
+        });
       }
     });
 
@@ -338,33 +315,57 @@ export class SQLiteStorage implements StorageAdapter {
   }
 
   async deleteEntities(entities: EntityReference[]): Promise<void> {
-    const deleteEntity = this.db.prepare('DELETE FROM entities WHERE name = ? AND entity_type = ?');
-    const deleteRelations = this.db.prepare(
+    const deleteEntityById = this.db.prepare('DELETE FROM entities WHERE id = ?');
+    const deleteEntityByName = this.db.prepare('DELETE FROM entities WHERE name = ? AND entity_type = ?');
+    const deleteRelationsById = this.db.prepare(
+      `DELETE FROM relations WHERE
+        (from_entity = (SELECT name FROM entities WHERE id = ?) AND from_type = (SELECT entity_type FROM entities WHERE id = ?)) OR
+        (to_entity = (SELECT name FROM entities WHERE id = ?) AND to_type = (SELECT entity_type FROM entities WHERE id = ?))`
+    );
+    const deleteRelationsByName = this.db.prepare(
       'DELETE FROM relations WHERE (from_entity = ? AND from_type = ?) OR (to_entity = ? AND to_type = ?)'
     );
 
     const transaction = this.db.transaction((entitiesToDelete: EntityReference[]) => {
       for (const entity of entitiesToDelete) {
-        deleteRelations.run(entity.name, entity.entityType, entity.name, entity.entityType);
-        deleteEntity.run(entity.name, entity.entityType);
+        if (entity.id) {
+          // First get the entity info for relation deletion
+          const entityInfo = this.db.prepare('SELECT name, entity_type FROM entities WHERE id = ?').get(entity.id) as { name: string; entity_type: string } | undefined;
+          if (entityInfo) {
+            deleteRelationsByName.run(entityInfo.name, entityInfo.entity_type, entityInfo.name, entityInfo.entity_type);
+          }
+          deleteEntityById.run(entity.id);
+        } else if (entity.name !== undefined) {
+          deleteRelationsByName.run(entity.name, entity.entityType || '', entity.name, entity.entityType || '');
+          deleteEntityByName.run(entity.name, entity.entityType || '');
+        }
       }
     });
 
     transaction(entities);
   }
 
-  async deleteObservations(deletions: { entityName: string; entityType: string; observations: Observation[] }[]): Promise<void> {
-    const getEntityId = this.db.prepare('SELECT id FROM entities WHERE name = ? AND entity_type = ?');
-    const deleteObservation = this.db.prepare(
+  async deleteObservations(deletions: ObservationIdentifier[]): Promise<void> {
+    const deleteObservationById = this.db.prepare('DELETE FROM observations WHERE id = ?');
+    const deleteObservationByContent = this.db.prepare(
       'DELETE FROM observations WHERE entity_id = ? AND content = ?'
     );
 
-    const transaction = this.db.transaction((deletionsToProcess: typeof deletions) => {
+    const transaction = this.db.transaction((deletionsToProcess: ObservationIdentifier[]) => {
       for (const deletion of deletionsToProcess) {
-        const entityRow = getEntityId.get(deletion.entityName, deletion.entityType) as { id: number } | undefined;
-        if (entityRow) {
-          for (const observation of deletion.observations) {
-            deleteObservation.run(entityRow.id, observation.text);
+        if (deletion.id) {
+          // Delete by observation ID
+          deleteObservationById.run(deletion.id);
+        } else {
+          // Resolve entity
+          const entity = this.resolveEntity({
+            id: deletion.entityId,
+            name: deletion.entityName,
+            entityType: deletion.entityType
+          });
+
+          if (entity && deletion.text) {
+            deleteObservationByContent.run(entity.id, deletion.text);
           }
         }
       }
@@ -373,14 +374,25 @@ export class SQLiteStorage implements StorageAdapter {
     transaction(deletions);
   }
 
-  async deleteRelations(relations: Relation[]): Promise<void> {
-    const deleteRelation = this.db.prepare(
+  async deleteRelations(relations: RelationIdentifier[]): Promise<void> {
+    const deleteRelationById = this.db.prepare('DELETE FROM relations WHERE id = ?');
+    const deleteRelationByComposite = this.db.prepare(
       'DELETE FROM relations WHERE from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ? AND relation_type = ?'
     );
 
-    const transaction = this.db.transaction((relationsToDelete: Relation[]) => {
+    const transaction = this.db.transaction((relationsToDelete: RelationIdentifier[]) => {
       for (const relation of relationsToDelete) {
-        deleteRelation.run(relation.from, relation.fromType, relation.to, relation.toType, relation.relationType);
+        if (relation.id) {
+          deleteRelationById.run(relation.id);
+        } else if (relation.from !== undefined && relation.to !== undefined && relation.relationType !== undefined) {
+          deleteRelationByComposite.run(
+            relation.from,
+            relation.fromType || '',
+            relation.to,
+            relation.toType || '',
+            relation.relationType
+          );
+        }
       }
     });
 
@@ -390,7 +402,6 @@ export class SQLiteStorage implements StorageAdapter {
   async searchNodes(query: string): Promise<KnowledgeGraph> {
     const searchPattern = `%${query.toLowerCase()}%`;
 
-    const entityIds = new Set<number>();
     const entities: Entity[] = [];
     const relations: Relation[] = [];
 
@@ -410,15 +421,16 @@ export class SQLiteStorage implements StorageAdapter {
     }>;
 
     for (const row of entityRows) {
-      entityIds.add(row.id);
       const observations = this.db
-        .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ content: string; timestamp: string | null; source: string | null }>;
+        .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(row.id) as Array<{ id: number; content: string; timestamp: string | null; source: string | null }>;
 
       entities.push({
+        id: String(row.id),
         name: row.name,
         entityType: row.entity_type,
         observations: observations.map(o => ({
+          id: String(o.id),
           text: o.content,
           ...(o.timestamp && { timestamp: o.timestamp }),
           ...(o.source && { source: o.source }),
@@ -442,14 +454,15 @@ export class SQLiteStorage implements StorageAdapter {
 
       const relationRows = this.db
         .prepare(
-          `SELECT from_entity, from_type, to_entity, to_type, relation_type
+          `SELECT id, from_entity, from_type, to_entity, to_type, relation_type
            FROM relations
            WHERE ${conditions.join(' OR ')}`
         )
-        .all(...params) as Array<{ from_entity: string; from_type: string; to_entity: string; to_type: string; relation_type: string }>;
+        .all(...params) as Array<{ id: number; from_entity: string; from_type: string; to_entity: string; to_type: string; relation_type: string }>;
 
       for (const row of relationRows) {
         relations.push({
+          id: String(row.id),
           from: row.from_entity,
           fromType: row.from_type,
           to: row.to_entity,
@@ -468,27 +481,28 @@ export class SQLiteStorage implements StorageAdapter {
     }
 
     const entities: Entity[] = [];
+    const resolvedEntities: Array<{ id: number; name: string; entityType: string }> = [];
 
-    // Build conditions for matching entities by (name, type) pairs
-    const conditions = entityRefs.map(() => '(name = ? AND entity_type = ?)').join(' OR ');
-    const params: string[] = [];
+    // Resolve each entity reference (by ID or name/type)
     for (const ref of entityRefs) {
-      params.push(ref.name, ref.entityType);
+      const entity = this.resolveEntity(ref);
+      if (entity) {
+        resolvedEntities.push(entity);
+      }
     }
 
-    const entityRows = this.db
-      .prepare(`SELECT id, name, entity_type FROM entities WHERE ${conditions}`)
-      .all(...params) as Array<{ id: number; name: string; entity_type: string }>;
-
-    for (const row of entityRows) {
+    // Fetch full entity data with observations
+    for (const entity of resolvedEntities) {
       const observations = this.db
-        .prepare('SELECT content, timestamp, source FROM observations WHERE entity_id = ?')
-        .all(row.id) as Array<{ content: string; timestamp: string | null; source: string | null }>;
+        .prepare('SELECT id, content, timestamp, source FROM observations WHERE entity_id = ?')
+        .all(entity.id) as Array<{ id: number; content: string; timestamp: string | null; source: string | null }>;
 
       entities.push({
-        name: row.name,
-        entityType: row.entity_type,
+        id: String(entity.id),
+        name: entity.name,
+        entityType: entity.entityType,
         observations: observations.map(o => ({
+          id: String(o.id),
           text: o.content,
           ...(o.timestamp && { timestamp: o.timestamp }),
           ...(o.source && { source: o.source }),
@@ -500,21 +514,14 @@ export class SQLiteStorage implements StorageAdapter {
     const relations: Relation[] = [];
 
     if (entities.length > 0) {
-      // Build conditions for matching relations
-      const relationConditions: string[] = [];
-      const relationParams: string[] = [];
-
-      for (const entity of entities) {
-        relationConditions.push('(from_entity = ? AND from_type = ? AND to_entity = ? AND to_type = ?)');
-      }
-
       // Get all relations between the requested entities
       const allRelationRows = this.db
         .prepare(
-          `SELECT from_entity, from_type, to_entity, to_type, relation_type
+          `SELECT id, from_entity, from_type, to_entity, to_type, relation_type
            FROM relations`
         )
         .all() as Array<{
+        id: number;
         from_entity: string;
         from_type: string;
         to_entity: string;
@@ -527,6 +534,7 @@ export class SQLiteStorage implements StorageAdapter {
         const toKey = `${row.to_entity}:${row.to_type}`;
         if (entityKeys.has(fromKey) && entityKeys.has(toKey)) {
           relations.push({
+            id: String(row.id),
             from: row.from_entity,
             fromType: row.from_type,
             to: row.to_entity,

@@ -24,7 +24,7 @@ SOFTWARE.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { KnowledgeGraphManager } from '../../src/managers/KnowledgeGraphManager.js';
 import { CategoryManager } from '../../src/managers/CategoryManager.js';
-import type { Entity, Relation, Observation } from '../../src/types/graph.js';
+import type { Entity, RelationInput } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -60,6 +60,7 @@ describe('KnowledgeGraphManager', () => {
 
       expect(graph.entities).toHaveLength(1);
       expect(graph.entities[0].name).toBe('DefaultEntity');
+      expect(graph.entities[0].id).toBeDefined();
     });
 
     it('should create default category database file', async () => {
@@ -102,6 +103,7 @@ describe('KnowledgeGraphManager', () => {
 
       expect(graph.entities).toHaveLength(1);
       expect(graph.entities[0].name).toBe('WorkEntity');
+      expect(graph.entities[0].id).toBeDefined();
     });
 
     it('should isolate entities between categories', async () => {
@@ -149,14 +151,16 @@ describe('KnowledgeGraphManager', () => {
       expect(graph2.entities[0].entityType).toBe('type2');
     });
 
-    it('should return created entities', async () => {
+    it('should return created entities with IDs', async () => {
       const entities: Entity[] = [
         { name: 'E1', entityType: 't1', observations: [{ text: 'o1' }] },
         { name: 'E2', entityType: 't2', observations: [{ text: 'o2' }] }
       ];
 
       const created = await kgManager.createEntities(entities, 'test');
-      expect(created).toEqual(entities);
+      expect(created).toHaveLength(2);
+      expect(created[0].id).toBeDefined();
+      expect(created[1].id).toBeDefined();
     });
   });
 
@@ -169,19 +173,19 @@ describe('KnowledgeGraphManager', () => {
     });
 
     it('should create relations in specified category', async () => {
-      const relations: Relation[] = [{
-        from: 'Entity1',
-        fromType: 'type1',
-        to: 'Entity2',
-        toType: 'type2',
+      const relations: RelationInput[] = [{
+        from: { name: 'Entity1', type: 'type1' },
+        to: { name: 'Entity2', type: 'type2' },
         relationType: 'depends_on'
       }];
 
-      await kgManager.createRelations(relations, 'test');
-      const graph = await kgManager.readGraph('test');
+      const created = await kgManager.createRelations(relations, 'test');
+      expect(created).toHaveLength(1);
+      expect(created[0].id).toBeDefined();
 
+      const graph = await kgManager.readGraph('test');
       expect(graph.relations).toHaveLength(1);
-      expect(graph.relations[0]).toEqual(relations[0]);
+      expect(graph.relations[0].from).toBe('Entity1');
     });
 
     it('should isolate relations between categories', async () => {
@@ -196,11 +200,11 @@ describe('KnowledgeGraphManager', () => {
       ], 'cat2');
 
       await kgManager.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'rel1' }
       ], 'test');
 
       await kgManager.createRelations([
-        { from: 'A', fromType: 't', to: 'B', toType: 't', relationType: 'rel2' }
+        { from: { name: 'A', type: 't' }, to: { name: 'B', type: 't' }, relationType: 'rel2' }
       ], 'cat1');
 
       const testGraph = await kgManager.readGraph('test');
@@ -212,7 +216,7 @@ describe('KnowledgeGraphManager', () => {
 
     it('should delete relations in specified category only', async () => {
       await kgManager.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel1' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'rel1' }
       ], 'test');
 
       await kgManager.createEntities([
@@ -221,7 +225,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'other');
 
       await kgManager.createRelations([
-        { from: 'X', fromType: 't', to: 'Y', toType: 't', relationType: 'rel1' }
+        { from: { name: 'X', type: 't' }, to: { name: 'Y', type: 't' }, relationType: 'rel1' }
       ], 'other');
 
       await kgManager.deleteRelations([
@@ -252,6 +256,7 @@ describe('KnowledgeGraphManager', () => {
         contents: [{ text: 'new obs' }]
       }], 'test');
 
+      expect(result[0].entityId).toBeDefined();
       expect(result[0].addedObservations.map(o => o.text)).toEqual(['new obs']);
 
       const graph = await kgManager.readGraph('test');
@@ -282,7 +287,7 @@ describe('KnowledgeGraphManager', () => {
       await kgManager.deleteObservations([{
         entityName: 'TestEntity',
         entityType: 'test',
-        observations: [{ text: 'initial' }]
+        text: 'initial'
       }], 'test');
 
       const graph = await kgManager.readGraph('test');
@@ -298,7 +303,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'test');
 
       await kgManager.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'rel' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'rel' }
       ], 'test');
     });
 
@@ -341,6 +346,7 @@ describe('KnowledgeGraphManager', () => {
 
       expect(result.entities).toHaveLength(1);
       expect(result.entities[0].name).toBe('UserService');
+      expect(result.entities[0].id).toBeDefined();
     });
 
     it('should not return results from other categories', async () => {
@@ -456,7 +462,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'project1');
 
       await kgManager.createRelations([
-        { from: 'ModuleA', fromType: 'module', to: 'ModuleB', toType: 'module', relationType: 'depends_on' }
+        { from: { name: 'ModuleA', type: 'module' }, to: { name: 'ModuleB', type: 'module' }, relationType: 'depends_on' }
       ], 'project1');
 
       await kgManager.createEntities([
@@ -465,7 +471,7 @@ describe('KnowledgeGraphManager', () => {
       ], 'project2');
 
       await kgManager.createRelations([
-        { from: 'ServiceX', fromType: 'service', to: 'ServiceY', toType: 'service', relationType: 'calls' }
+        { from: { name: 'ServiceX', type: 'service' }, to: { name: 'ServiceY', type: 'service' }, relationType: 'calls' }
       ], 'project2');
 
       const project1 = await kgManager.readGraph('project1');
@@ -546,7 +552,7 @@ describe('KnowledgeGraphManager', () => {
       }], 'test');
 
       await kgManager.createRelations([
-        { from: 'E1', fromType: 't', to: 'E1', toType: 't', relationType: 'self-ref' }
+        { from: { name: 'E1', type: 't' }, to: { name: 'E1', type: 't' }, relationType: 'self-ref' }
       ], 'test');
 
       const graph = await kgManager.readGraph('test');

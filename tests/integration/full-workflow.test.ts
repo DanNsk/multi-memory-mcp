@@ -24,7 +24,7 @@ SOFTWARE.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { KnowledgeGraphManager } from '../../src/managers/KnowledgeGraphManager.js';
 import { CategoryManager } from '../../src/managers/CategoryManager.js';
-import type { Entity, Relation, Observation } from '../../src/types/graph.js';
+import type { Entity, RelationInput } from '../../src/types/graph.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -90,10 +90,8 @@ describe('Full Workflow Integration Tests', () => {
       }], 'work');
 
       await kgManager.createRelations([{
-        from: 'Sarah',
-        fromType: 'colleague',
-        to: 'Project_Alpha',
-        toType: 'project',
+        from: { name: 'Sarah', type: 'colleague' },
+        to: { name: 'Project_Alpha', type: 'project' },
         relationType: 'leads'
       }], 'work');
 
@@ -114,8 +112,8 @@ describe('Full Workflow Integration Tests', () => {
       ], 'project-backend');
 
       await kgManager.createRelations([
-        { from: 'AuthController', fromType: 'controller', to: 'UserService', toType: 'service', relationType: 'depends_on' },
-        { from: 'UserService', fromType: 'service', to: 'DatabaseClient', toType: 'client', relationType: 'uses' }
+        { from: { name: 'AuthController', type: 'controller' }, to: { name: 'UserService', type: 'service' }, relationType: 'depends_on' },
+        { from: { name: 'UserService', type: 'service' }, to: { name: 'DatabaseClient', type: 'client' }, relationType: 'uses' }
       ], 'project-backend');
 
       await kgManager.createEntities([
@@ -124,7 +122,7 @@ describe('Full Workflow Integration Tests', () => {
       ], 'project-frontend');
 
       await kgManager.createRelations([
-        { from: 'LoginComponent', fromType: 'component', to: 'APIClient', toType: 'client', relationType: 'uses' }
+        { from: { name: 'LoginComponent', type: 'component' }, to: { name: 'APIClient', type: 'client' }, relationType: 'uses' }
       ], 'project-frontend');
 
       const backendGraph = await kgManager.readGraph('project-backend');
@@ -145,10 +143,10 @@ describe('Full Workflow Integration Tests', () => {
       ], 'dependencies');
 
       await kgManager.createRelations([
-        { from: 'ModuleA', fromType: 'module', to: 'ModuleB', toType: 'module', relationType: 'imports' },
-        { from: 'ModuleA', fromType: 'module', to: 'ModuleC', toType: 'module', relationType: 'imports' },
-        { from: 'ModuleB', fromType: 'module', to: 'ModuleD', toType: 'module', relationType: 'imports' },
-        { from: 'ModuleC', fromType: 'module', to: 'ModuleD', toType: 'module', relationType: 'imports' }
+        { from: { name: 'ModuleA', type: 'module' }, to: { name: 'ModuleB', type: 'module' }, relationType: 'imports' },
+        { from: { name: 'ModuleA', type: 'module' }, to: { name: 'ModuleC', type: 'module' }, relationType: 'imports' },
+        { from: { name: 'ModuleB', type: 'module' }, to: { name: 'ModuleD', type: 'module' }, relationType: 'imports' },
+        { from: { name: 'ModuleC', type: 'module' }, to: { name: 'ModuleD', type: 'module' }, relationType: 'imports' }
       ], 'dependencies');
 
       const moduleADeps = await kgManager.openNodes([
@@ -189,7 +187,7 @@ describe('Full Workflow Integration Tests', () => {
       ], category);
 
       await kgManager.createRelations([
-        { from: 'Entity1', fromType: 'type1', to: 'Entity2', toType: 'type2', relationType: 'relates_to' }
+        { from: { name: 'Entity1', type: 'type1' }, to: { name: 'Entity2', type: 'type2' }, relationType: 'relates_to' }
       ], category);
 
       graph = await kgManager.readGraph(category);
@@ -199,7 +197,7 @@ describe('Full Workflow Integration Tests', () => {
       await kgManager.deleteObservations([{
         entityName: 'Entity1',
         entityType: 'type1',
-        observations: [{ text: 'initial' }]
+        text: 'initial'
       }], category);
 
       graph = await kgManager.readGraph(category);
@@ -230,9 +228,9 @@ describe('Full Workflow Integration Tests', () => {
       ], 'features');
 
       await kgManager.createRelations([
-        { from: 'UserAuthentication', fromType: 'feature', to: 'DatabaseConnection', toType: 'infrastructure', relationType: 'uses' },
-        { from: 'UserProfile', fromType: 'feature', to: 'DatabaseConnection', toType: 'infrastructure', relationType: 'uses' },
-        { from: 'AdminPanel', fromType: 'feature', to: 'UserAuthentication', toType: 'feature', relationType: 'requires' }
+        { from: { name: 'UserAuthentication', type: 'feature' }, to: { name: 'DatabaseConnection', type: 'infrastructure' }, relationType: 'uses' },
+        { from: { name: 'UserProfile', type: 'feature' }, to: { name: 'DatabaseConnection', type: 'infrastructure' }, relationType: 'uses' },
+        { from: { name: 'AdminPanel', type: 'feature' }, to: { name: 'UserAuthentication', type: 'feature' }, relationType: 'requires' }
       ], 'features');
     });
 
@@ -269,7 +267,7 @@ describe('Full Workflow Integration Tests', () => {
       ], 'persist');
 
       await kgManager.createRelations([
-        { from: 'PersistentEntity', fromType: 'test', to: 'PersistentEntity', toType: 'test', relationType: 'self' }
+        { from: { name: 'PersistentEntity', type: 'test' }, to: { name: 'PersistentEntity', type: 'test' }, relationType: 'self' }
       ], 'persist');
 
       kgManager.closeAll();
@@ -313,9 +311,9 @@ describe('Full Workflow Integration Tests', () => {
       ], 'circular');
 
       await kgManager.createRelations([
-        { from: 'A', fromType: 'module', to: 'B', toType: 'module', relationType: 'depends_on' },
-        { from: 'B', fromType: 'module', to: 'C', toType: 'module', relationType: 'depends_on' },
-        { from: 'C', fromType: 'module', to: 'A', toType: 'module', relationType: 'depends_on' }
+        { from: { name: 'A', type: 'module' }, to: { name: 'B', type: 'module' }, relationType: 'depends_on' },
+        { from: { name: 'B', type: 'module' }, to: { name: 'C', type: 'module' }, relationType: 'depends_on' },
+        { from: { name: 'C', type: 'module' }, to: { name: 'A', type: 'module' }, relationType: 'depends_on' }
       ], 'circular');
 
       const graph = await kgManager.readGraph('circular');
@@ -328,7 +326,7 @@ describe('Full Workflow Integration Tests', () => {
 
     it('should handle deep hierarchy', async () => {
       const entities: Entity[] = [];
-      const relations: Relation[] = [];
+      const relations: RelationInput[] = [];
 
       for (let i = 0; i < 10; i++) {
         entities.push({
@@ -339,10 +337,8 @@ describe('Full Workflow Integration Tests', () => {
 
         if (i > 0) {
           relations.push({
-            from: `Level${i-1}`,
-            fromType: 'level',
-            to: `Level${i}`,
-            toType: 'level',
+            from: { name: `Level${i-1}`, type: 'level' },
+            to: { name: `Level${i}`, type: 'level' },
             relationType: 'parent_of'
           });
         }
@@ -366,10 +362,10 @@ describe('Full Workflow Integration Tests', () => {
       ], 'school');
 
       await kgManager.createRelations([
-        { from: 'Student1', fromType: 'student', to: 'Course1', toType: 'course', relationType: 'enrolled_in' },
-        { from: 'Student1', fromType: 'student', to: 'Course2', toType: 'course', relationType: 'enrolled_in' },
-        { from: 'Student2', fromType: 'student', to: 'Course1', toType: 'course', relationType: 'enrolled_in' },
-        { from: 'Student2', fromType: 'student', to: 'Course2', toType: 'course', relationType: 'enrolled_in' }
+        { from: { name: 'Student1', type: 'student' }, to: { name: 'Course1', type: 'course' }, relationType: 'enrolled_in' },
+        { from: { name: 'Student1', type: 'student' }, to: { name: 'Course2', type: 'course' }, relationType: 'enrolled_in' },
+        { from: { name: 'Student2', type: 'student' }, to: { name: 'Course1', type: 'course' }, relationType: 'enrolled_in' },
+        { from: { name: 'Student2', type: 'student' }, to: { name: 'Course2', type: 'course' }, relationType: 'enrolled_in' }
       ], 'school');
 
       const student1Courses = await kgManager.openNodes([
@@ -473,8 +469,8 @@ describe('Full Workflow Integration Tests', () => {
       ], 'codebase-docs');
 
       await kgManager.createRelations([
-        { from: 'AuthService', fromType: 'class', to: 'UserModel', toType: 'class', relationType: 'uses' },
-        { from: 'AuthService', fromType: 'class', to: 'JWT', toType: 'library', relationType: 'imports' }
+        { from: { name: 'AuthService', type: 'class' }, to: { name: 'UserModel', type: 'class' }, relationType: 'uses' },
+        { from: { name: 'AuthService', type: 'class' }, to: { name: 'JWT', type: 'library' }, relationType: 'imports' }
       ], 'codebase-docs');
 
       const authInfo = await kgManager.searchNodes('AuthService', 'codebase-docs');
