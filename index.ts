@@ -58,9 +58,7 @@ export async function ensureMemoryFilePath(): Promise<string> {
       return newMemoryPath;
     } catch {
       // Old file exists, new file doesn't - migrate
-      console.error('DETECTED: Found legacy memory.json file, migrating to memory.jsonl for JSONL format compatibility');
       await fs.rename(oldMemoryPath, newMemoryPath);
-      console.error('COMPLETED: Successfully migrated memory.json to memory.jsonl');
       return newMemoryPath;
     }
   } catch {
