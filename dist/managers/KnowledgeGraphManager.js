@@ -28,20 +28,20 @@ export class KnowledgeGraphManager {
         this.categoryManager = categoryManager;
         this.defaultCategory = defaultCategory;
     }
-    async createEntities(entities, category) {
+    async createEntities(entities, category, override) {
         const cat = category || this.defaultCategory;
         const storage = await this.categoryManager.getStorageAdapter(cat);
-        return storage.createEntities(entities);
+        return storage.createEntities(entities, override);
     }
-    async createRelations(relations, category) {
+    async createRelations(relations, category, override) {
         const cat = category || this.defaultCategory;
         const storage = await this.categoryManager.getStorageAdapter(cat);
-        return storage.createRelations(relations);
+        return storage.createRelations(relations, override);
     }
-    async addObservations(observations, category) {
+    async addObservations(observations, category, override) {
         const cat = category || this.defaultCategory;
         const storage = await this.categoryManager.getStorageAdapter(cat);
-        return storage.addObservations(observations);
+        return storage.addObservations(observations, override);
     }
     async deleteEntities(entities, category) {
         const cat = category || this.defaultCategory;

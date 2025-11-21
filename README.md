@@ -8,17 +8,19 @@ A multi-category knowledge graph memory server using SQLite for persistent stora
 - LRU connection cache (prevents memory leaks)
 - **ID-based operations** - all objects have unique IDs for precise operations
 - **Dual identification** - use ID or name/type composite key
+- **Custom properties** - JSON properties on entities, observations, and relations (searchable)
+- **Override mode** - update existing records instead of skipping duplicates
 - SQL injection protection
 - Full test coverage (141 tests)
 
 ## Quick Start
 
-### Run Directly with bunx (No Installation Required)
+### Run Directly with npx (No Installation Required)
 
-The fastest way to use multi-memory-mcp is to run it directly from GitHub using `bunx`:
+The fastest way to use multi-memory-mcp is to run it directly from GitHub using `npx`:
 
 ```bash
-bunx github:DanNsk/multi-memory-mcp
+npx github:DanNsk/multi-memory-mcp
 ```
 
 This will download, build, and run the server automatically. Perfect for trying it out or using in Claude Desktop config:
@@ -27,7 +29,7 @@ This will download, build, and run the server automatically. Perfect for trying 
 {
   "mcpServers": {
     "multi-memory": {
-      "command": "bunx",
+      "command": "npx",
       "args": ["github:DanNsk/multi-memory-mcp"],
       "env": {
         "MEMORY_BASE_DIR": "/path/to/.memory",
@@ -43,8 +45,8 @@ This will download, build, and run the server automatically. Perfect for trying 
 ```bash
 git clone https://github.com/DanNsk/multi-memory-mcp
 cd multi-memory-mcp
-bun install
-bun run build
+npm install
+npm run build
 ```
 
 ### Configuration
@@ -56,13 +58,13 @@ Add to Claude Desktop config:
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
 
-**Using bunx (recommended):**
+**Using npx (recommended):**
 
 ```json
 {
   "mcpServers": {
     "multi-memory": {
-      "command": "bunx",
+      "command": "npx",
       "args": ["github:DanNsk/multi-memory-mcp"],
       "env": {
         "MEMORY_BASE_DIR": "/Users/yourname/.memory",
@@ -166,6 +168,7 @@ Primary storage for graph nodes.
 | `id` | INTEGER PRIMARY KEY AUTOINCREMENT | Unique entity identifier |
 | `name` | TEXT NOT NULL | Entity name |
 | `entity_type` | TEXT NOT NULL | Entity classification type |
+| `properties` | TEXT | JSON properties (searchable) |
 | `created_at` | INTEGER | Unix timestamp of creation |
 | `updated_at` | INTEGER | Unix timestamp of last update |
 
@@ -182,6 +185,7 @@ Facts and notes associated with entities.
 | `content` | TEXT NOT NULL | Observation text |
 | `timestamp` | TEXT | ISO 8601 timestamp |
 | `source` | TEXT NOT NULL DEFAULT '' | Origin of observation |
+| `properties` | TEXT | JSON properties (searchable) |
 | `created_at` | INTEGER | Unix timestamp of creation |
 
 **Foreign Key:** `entity_id` → `entities(id)` ON DELETE CASCADE
@@ -197,6 +201,7 @@ Directed connections between entities.
 | `from_entity_id` | INTEGER NOT NULL | **Foreign key** to `entities(id)` - source entity |
 | `to_entity_id` | INTEGER NOT NULL | **Foreign key** to `entities(id)` - target entity |
 | `relation_type` | TEXT NOT NULL | Type of relationship |
+| `properties` | TEXT | JSON properties |
 | `created_at` | INTEGER | Unix timestamp of creation |
 
 **Foreign Keys:**
@@ -343,23 +348,36 @@ Create new entities in the knowledge graph.
 ```json
 {
   "category": "work",
+  "override": false,
   "entities": [
     {
       "name": "UserService",
       "entityType": "service",
+      "properties": {
+        "filePath": "/src/services/user.ts",
+        "tags": ["core", "authentication"]
+      },
       "observations": [
         {
           "observationType": "description",
           "text": "Manages user data",
           "timestamp": "2025-11-19T10:00:00Z",
-          "source": "code-analysis"
+          "source": "code-analysis",
+          "properties": {
+            "confidence": 0.95,
+            "lineNumber": 42
+          }
         }
       ]
     }
   ]
 }
 ```
-*Note: `entityType` defaults to empty string. Observations are unique by (entity, observationType, source).*
+*Notes:*
+- `entityType` defaults to empty string
+- Observations are unique by (entity, observationType, source)
+- `properties` is optional JSON for custom metadata (searchable)
+- `override: true` replaces existing entities instead of skipping them
 
 **Output:**
 ```json
@@ -368,13 +386,21 @@ Create new entities in the knowledge graph.
     "id": "1",
     "name": "UserService",
     "entityType": "service",
+    "properties": {
+      "filePath": "/src/services/user.ts",
+      "tags": ["core", "authentication"]
+    },
     "observations": [
       {
         "id": "1",
         "observationType": "description",
         "text": "Manages user data",
         "timestamp": "2025-11-19T10:00:00Z",
-        "source": "code-analysis"
+        "source": "code-analysis",
+        "properties": {
+          "confidence": 0.95,
+          "lineNumber": 42
+        }
       }
     ]
   }
@@ -391,6 +417,7 @@ Create relationships between entities. Each endpoint can be specified by ID or n
 ```json
 {
   "category": "work",
+  "override": false,
   "relations": [
     {
       "from": {
@@ -401,12 +428,19 @@ Create relationships between entities. Each endpoint can be specified by ID or n
         "name": "UserService",
         "type": "service"
       },
-      "relationType": "uses"
+      "relationType": "uses",
+      "properties": {
+        "weight": 0.8,
+        "since": "2024-01-01"
+      }
     }
   ]
 }
 ```
-*Note: `type` defaults to empty string if not provided.*
+*Notes:*
+- `type` defaults to empty string if not provided
+- `properties` is optional JSON for custom metadata
+- `override: true` updates existing relations instead of skipping them
 
 **Input (using IDs):**
 ```json
@@ -432,7 +466,11 @@ Create relationships between entities. Each endpoint can be specified by ID or n
     "fromType": "controller",
     "to": "UserService",
     "toType": "service",
-    "relationType": "uses"
+    "relationType": "uses",
+    "properties": {
+      "weight": 0.8,
+      "since": "2024-01-01"
+    }
   }
 ]
 ```
@@ -447,6 +485,7 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
 ```json
 {
   "category": "work",
+  "override": false,
   "observations": [
     {
       "entityName": "UserService",
@@ -456,7 +495,11 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
           "observationType": "version",
           "text": "Updated to v2.0",
           "timestamp": "2025-11-19T14:30:00Z",
-          "source": "changelog"
+          "source": "changelog",
+          "properties": {
+            "semver": "2.0.0",
+            "breaking": true
+          }
         },
         {
           "observationType": "feature",
@@ -468,6 +511,7 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
   ]
 }
 ```
+*Note: `override: true` updates existing observations (matched by observationType+source) instead of skipping them.*
 
 **Input (using entity ID):**
 ```json
@@ -502,7 +546,11 @@ Add observations to existing entities. Entity can be identified by ID or name/ty
         "observationType": "version",
         "text": "Updated to v2.0",
         "timestamp": "2025-11-19T14:30:00Z",
-        "source": "changelog"
+        "source": "changelog",
+        "properties": {
+          "semver": "2.0.0",
+          "breaking": true
+        }
       },
       {
         "id": "4",
@@ -684,7 +732,7 @@ Get entire knowledge graph for a category.
 
 ### search_nodes
 
-Search by name, type, or observation content.
+Search by name, type, observation content, or properties (all searchable via FTS5).
 
 **Input:**
 ```json
@@ -910,14 +958,14 @@ Keep contexts isolated:
 ### Build
 
 ```bash
-bun run build      # Compile TypeScript
-bun run watch      # Watch mode
+npm run build      # Compile TypeScript
+npm run watch      # Watch mode
 ```
 
 ### Testing
 
 ```bash
-bun test           # Run all tests (141 tests)
+npm test           # Run all tests (141 tests)
 ```
 
 Coverage: SQLiteStorage 98%, CategoryManager 87%, KnowledgeGraphManager 100%

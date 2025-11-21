@@ -23,7 +23,7 @@ SOFTWARE.
 */
 import Database from 'better-sqlite3';
 // Current schema version - increment when making schema changes
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 export class SQLiteStorage {
     db;
     constructor(dbPath) {
@@ -39,6 +39,7 @@ export class SQLiteStorage {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         entity_type TEXT NOT NULL,
+        properties TEXT,
         created_at INTEGER DEFAULT (unixepoch()),
         updated_at INTEGER DEFAULT (unixepoch()),
         UNIQUE(name, entity_type)
@@ -51,6 +52,7 @@ export class SQLiteStorage {
         content TEXT NOT NULL,
         timestamp TEXT,
         source TEXT NOT NULL DEFAULT '',
+        properties TEXT,
         created_at INTEGER DEFAULT (unixepoch()),
         FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE,
         UNIQUE(entity_id, observation_type, source)
@@ -61,6 +63,7 @@ export class SQLiteStorage {
         from_entity_id INTEGER NOT NULL,
         to_entity_id INTEGER NOT NULL,
         relation_type TEXT NOT NULL,
+        properties TEXT,
         created_at INTEGER DEFAULT (unixepoch()),
         FOREIGN KEY (from_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
         FOREIGN KEY (to_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
@@ -93,9 +96,79 @@ export class SQLiteStorage {
         if (currentVersion < 2) {
             this.upgradeToVersion2();
         }
+        if (currentVersion < 3) {
+            this.upgradeToVersion3();
+        }
         if (currentVersion < SCHEMA_VERSION) {
             this.setSchemaVersion(SCHEMA_VERSION);
         }
+    }
+    upgradeToVersion3() {
+        // Add properties column to entities, observations, and relations tables
+        // Check if columns exist before adding (for safety)
+        const tableInfo = (tableName) => {
+            return this.db.prepare(`PRAGMA table_info(${tableName})`).all();
+        };
+        const entityColumns = tableInfo('entities').map(c => c.name);
+        if (!entityColumns.includes('properties')) {
+            this.db.exec('ALTER TABLE entities ADD COLUMN properties TEXT');
+        }
+        const observationColumns = tableInfo('observations').map(c => c.name);
+        if (!observationColumns.includes('properties')) {
+            this.db.exec('ALTER TABLE observations ADD COLUMN properties TEXT');
+        }
+        const relationColumns = tableInfo('relations').map(c => c.name);
+        if (!relationColumns.includes('properties')) {
+            this.db.exec('ALTER TABLE relations ADD COLUMN properties TEXT');
+        }
+        // Update FTS triggers to include properties in search
+        // Drop existing triggers and recreate with properties
+        this.db.exec(`
+      DROP TRIGGER IF EXISTS fts_entity_insert;
+      DROP TRIGGER IF EXISTS fts_entity_update;
+      DROP TRIGGER IF EXISTS fts_observation_insert;
+      DROP TRIGGER IF EXISTS fts_observation_update;
+    `);
+        // Recreate triggers with properties included
+        this.db.exec(`
+      -- Trigger: After entity insert - create FTS entry for entity with properties
+      CREATE TRIGGER IF NOT EXISTS fts_entity_insert AFTER INSERT ON entities BEGIN
+        INSERT INTO fts_content (entity_name, entity_type, observation_content)
+        VALUES (NEW.name, NEW.entity_type, COALESCE(NEW.properties, ''));
+        INSERT INTO fts_map (fts_rowid, entity_id)
+        VALUES (last_insert_rowid(), NEW.id);
+      END;
+
+      -- Trigger: After entity update - update FTS entries with properties
+      CREATE TRIGGER IF NOT EXISTS fts_entity_update AFTER UPDATE ON entities BEGIN
+        -- Update entity's own FTS entry
+        UPDATE fts_content SET
+          entity_name = NEW.name,
+          entity_type = NEW.entity_type,
+          observation_content = COALESCE(NEW.properties, '')
+        WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE entity_id = NEW.id AND observation_id IS NULL);
+        -- Update observation entries' entity name/type only
+        UPDATE fts_content SET entity_name = NEW.name, entity_type = NEW.entity_type
+        WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE entity_id = NEW.id AND observation_id IS NOT NULL);
+      END;
+
+      -- Trigger: After observation insert - create FTS entry for observation with properties
+      CREATE TRIGGER IF NOT EXISTS fts_observation_insert AFTER INSERT ON observations BEGIN
+        INSERT INTO fts_content (entity_name, entity_type, observation_content)
+        SELECT e.name, e.entity_type, NEW.content || ' ' || COALESCE(NEW.properties, '')
+        FROM entities e WHERE e.id = NEW.entity_id;
+        INSERT INTO fts_map (fts_rowid, entity_id, observation_id)
+        VALUES (last_insert_rowid(), NEW.entity_id, NEW.id);
+      END;
+
+      -- Trigger: After observation update - update FTS entry with properties
+      CREATE TRIGGER IF NOT EXISTS fts_observation_update AFTER UPDATE ON observations BEGIN
+        UPDATE fts_content SET observation_content = NEW.content || ' ' || COALESCE(NEW.properties, '')
+        WHERE rowid IN (SELECT fts_rowid FROM fts_map WHERE observation_id = NEW.id);
+      END;
+    `);
+        // Rebuild FTS index to include properties
+        this.rebuildFTSIndex();
     }
     upgradeToVersion2() {
         // FTS5 full-text search upgrade
@@ -170,23 +243,24 @@ export class SQLiteStorage {
         this.db.exec('DELETE FROM fts_content');
         this.db.exec('DELETE FROM fts_map');
         // Index all entities (one entry per entity for entity-level search)
-        const entities = this.db.prepare('SELECT id, name, entity_type FROM entities').all();
+        const entities = this.db.prepare('SELECT id, name, entity_type, properties FROM entities').all();
         const insertFts = this.db.prepare('INSERT INTO fts_content (entity_name, entity_type, observation_content) VALUES (?, ?, ?)');
         const insertMap = this.db.prepare('INSERT INTO fts_map (fts_rowid, entity_id, observation_id) VALUES (?, ?, ?)');
         const transaction = this.db.transaction(() => {
             for (const entity of entities) {
-                // Insert entity entry
-                const result = insertFts.run(entity.name, entity.entity_type, '');
+                // Insert entity entry with properties
+                const result = insertFts.run(entity.name, entity.entity_type, entity.properties || '');
                 insertMap.run(result.lastInsertRowid, entity.id, null);
             }
             // Index all observations
             const observations = this.db.prepare(`
-        SELECT o.id as obs_id, o.content, e.id as entity_id, e.name, e.entity_type
+        SELECT o.id as obs_id, o.content, o.properties as obs_properties, e.id as entity_id, e.name, e.entity_type
         FROM observations o
         JOIN entities e ON o.entity_id = e.id
       `).all();
             for (const obs of observations) {
-                const result = insertFts.run(obs.name, obs.entity_type, obs.content);
+                const obsContent = obs.content + (obs.obs_properties ? ' ' + obs.obs_properties : '');
+                const result = insertFts.run(obs.name, obs.entity_type, obsContent);
                 insertMap.run(result.lastInsertRowid, obs.entity_id, obs.obs_id);
             }
         });
@@ -222,10 +296,10 @@ export class SQLiteStorage {
     async loadGraph() {
         const entities = [];
         const relations = [];
-        const entityRows = this.db.prepare('SELECT id, name, entity_type FROM entities').all();
+        const entityRows = this.db.prepare('SELECT id, name, entity_type, properties FROM entities').all();
         for (const row of entityRows) {
             const observations = this.db
-                .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
+                .prepare('SELECT id, observation_type, content, timestamp, source, properties FROM observations WHERE entity_id = ?')
                 .all(row.id);
             entities.push({
                 id: String(row.id),
@@ -237,11 +311,13 @@ export class SQLiteStorage {
                     ...(o.observation_type && { observationType: o.observation_type }),
                     ...(o.timestamp && { timestamp: o.timestamp }),
                     ...(o.source && { source: o.source }),
+                    ...(o.properties && { properties: JSON.parse(o.properties) }),
                 })),
+                ...(row.properties && { properties: JSON.parse(row.properties) }),
             });
         }
         const relationRows = this.db
-            .prepare('SELECT id, from_entity_id, to_entity_id, relation_type FROM relations')
+            .prepare('SELECT id, from_entity_id, to_entity_id, relation_type, properties FROM relations')
             .all();
         for (const row of relationRows) {
             const fromEntity = this.getEntityById(row.from_entity_id);
@@ -255,30 +331,51 @@ export class SQLiteStorage {
                 fromType: fromEntity?.entityType,
                 to: toEntity?.name,
                 toType: toEntity?.entityType,
+                ...(row.properties && { properties: JSON.parse(row.properties) }),
             });
         }
         return { entities, relations };
     }
-    async createEntities(entities) {
-        const insertEntity = this.db.prepare('INSERT OR IGNORE INTO entities (name, entity_type) VALUES (?, ?)');
-        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, observation_type, content, timestamp, source) VALUES (?, ?, ?, ?, ?)');
-        const getEntity = this.db.prepare('SELECT id, name, entity_type FROM entities WHERE name = ? AND entity_type = ?');
+    async createEntities(entities, override = false) {
+        const insertEntity = this.db.prepare('INSERT OR IGNORE INTO entities (name, entity_type, properties) VALUES (?, ?, ?)');
+        const updateEntity = this.db.prepare('UPDATE entities SET properties = ?, updated_at = unixepoch() WHERE name = ? AND entity_type = ?');
+        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, observation_type, content, timestamp, source, properties) VALUES (?, ?, ?, ?, ?, ?)');
+        const updateObservation = this.db.prepare('UPDATE observations SET content = ?, timestamp = ?, properties = ? WHERE entity_id = ? AND observation_type = ? AND source = ?');
+        const getEntity = this.db.prepare('SELECT id, name, entity_type, properties FROM entities WHERE name = ? AND entity_type = ?');
+        const deleteEntityObservations = this.db.prepare('DELETE FROM observations WHERE entity_id = ?');
         const newEntities = [];
         const transaction = this.db.transaction((entitiesToCreate) => {
             for (const entity of entitiesToCreate) {
-                const result = insertEntity.run(entity.name, entity.entityType);
-                if (result.changes > 0) {
-                    const entityRow = getEntity.get(entity.name, entity.entityType);
+                const propertiesJson = entity.properties ? JSON.stringify(entity.properties) : null;
+                const result = insertEntity.run(entity.name, entity.entityType, propertiesJson);
+                let entityRow;
+                let isNewEntity = result.changes > 0;
+                if (!isNewEntity) {
+                    // Entity already exists
+                    entityRow = getEntity.get(entity.name, entity.entityType);
+                    if (override) {
+                        // Override: update entity properties and replace all observations
+                        updateEntity.run(propertiesJson, entity.name, entity.entityType);
+                        deleteEntityObservations.run(entityRow.id);
+                        isNewEntity = true; // Treat as new so we add observations
+                    }
+                }
+                else {
+                    entityRow = getEntity.get(entity.name, entity.entityType);
+                }
+                if (isNewEntity) {
                     const observationsWithIds = [];
                     for (const observation of entity.observations) {
                         const timestamp = observation.timestamp || new Date().toISOString();
-                        const obsResult = insertObservation.run(entityRow.id, observation.observationType || '', observation.text, timestamp, observation.source || '');
+                        const obsPropertiesJson = observation.properties ? JSON.stringify(observation.properties) : null;
+                        const obsResult = insertObservation.run(entityRow.id, observation.observationType || '', observation.text, timestamp, observation.source || '', obsPropertiesJson);
                         observationsWithIds.push({
                             id: String(obsResult.lastInsertRowid),
                             text: observation.text,
                             ...(observation.observationType && { observationType: observation.observationType }),
                             timestamp,
                             ...(observation.source && { source: observation.source }),
+                            ...(observation.properties && { properties: observation.properties }),
                         });
                     }
                     newEntities.push({
@@ -286,6 +383,7 @@ export class SQLiteStorage {
                         name: entity.name,
                         entityType: entity.entityType,
                         observations: observationsWithIds,
+                        ...(entity.properties && { properties: entity.properties }),
                     });
                 }
             }
@@ -293,9 +391,10 @@ export class SQLiteStorage {
         transaction(entities);
         return newEntities;
     }
-    async createRelations(relations) {
-        const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)');
-        const getRelation = this.db.prepare('SELECT id FROM relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?');
+    async createRelations(relations, override = false) {
+        const insertRelation = this.db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type, properties) VALUES (?, ?, ?, ?)');
+        const updateRelation = this.db.prepare('UPDATE relations SET properties = ? WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?');
+        const getRelation = this.db.prepare('SELECT id, properties FROM relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?');
         const newRelations = [];
         const transaction = this.db.transaction((relationsToCreate) => {
             for (const relation of relationsToCreate) {
@@ -311,28 +410,42 @@ export class SQLiteStorage {
                     const identifier = relation.to.id ? `id '${relation.to.id}'` : `name '${relation.to.name}' with type '${relation.to.type || ''}'`;
                     throw new Error(`Entity with ${identifier} not found`);
                 }
-                const result = insertRelation.run(fromEntity.id, toEntity.id, relation.relationType);
+                const propertiesJson = relation.properties ? JSON.stringify(relation.properties) : null;
+                const result = insertRelation.run(fromEntity.id, toEntity.id, relation.relationType, propertiesJson);
+                let relationRow;
                 if (result.changes > 0) {
-                    const relationRow = getRelation.get(fromEntity.id, toEntity.id, relation.relationType);
-                    newRelations.push({
-                        id: String(relationRow.id),
-                        fromId: String(fromEntity.id),
-                        toId: String(toEntity.id),
-                        relationType: relation.relationType,
-                        from: fromEntity.name,
-                        fromType: fromEntity.entityType,
-                        to: toEntity.name,
-                        toType: toEntity.entityType,
-                    });
+                    relationRow = getRelation.get(fromEntity.id, toEntity.id, relation.relationType);
                 }
+                else if (override) {
+                    // Relation exists and override is true - update properties
+                    updateRelation.run(propertiesJson, fromEntity.id, toEntity.id, relation.relationType);
+                    relationRow = getRelation.get(fromEntity.id, toEntity.id, relation.relationType);
+                }
+                else {
+                    // Relation exists but no override - skip
+                    continue;
+                }
+                newRelations.push({
+                    id: String(relationRow.id),
+                    fromId: String(fromEntity.id),
+                    toId: String(toEntity.id),
+                    relationType: relation.relationType,
+                    from: fromEntity.name,
+                    fromType: fromEntity.entityType,
+                    to: toEntity.name,
+                    toType: toEntity.entityType,
+                    ...(relation.properties && { properties: relation.properties }),
+                });
             }
         });
         transaction(relations);
         return newRelations;
     }
-    async addObservations(observations) {
-        const getExistingObservations = this.db.prepare('SELECT observation_type, source FROM observations WHERE entity_id = ?');
-        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, observation_type, content, timestamp, source) VALUES (?, ?, ?, ?, ?)');
+    async addObservations(observations, override = false) {
+        const getExistingObservations = this.db.prepare('SELECT id, observation_type, source FROM observations WHERE entity_id = ?');
+        const insertObservation = this.db.prepare('INSERT INTO observations (entity_id, observation_type, content, timestamp, source, properties) VALUES (?, ?, ?, ?, ?, ?)');
+        const updateObservation = this.db.prepare('UPDATE observations SET content = ?, timestamp = ?, properties = ? WHERE entity_id = ? AND observation_type = ? AND source = ?');
+        const getObservation = this.db.prepare('SELECT id FROM observations WHERE entity_id = ? AND observation_type = ? AND source = ?');
         const results = [];
         const transaction = this.db.transaction((observationsToAdd) => {
             for (const obs of observationsToAdd) {
@@ -347,22 +460,39 @@ export class SQLiteStorage {
                     throw new Error(`Entity with ${identifier} not found`);
                 }
                 const existingObs = getExistingObservations.all(entity.id);
-                const existingSet = new Set(existingObs.map(o => `${o.observation_type}|${o.source}`));
+                const existingMap = new Map(existingObs.map(o => [`${o.observation_type}|${o.source}`, o.id]));
                 const addedObservations = [];
                 for (const observation of obs.contents) {
                     const obsKey = `${observation.observationType || ''}|${observation.source || ''}`;
-                    if (!existingSet.has(obsKey)) {
-                        const timestamp = observation.timestamp || new Date().toISOString();
-                        const obsResult = insertObservation.run(entity.id, observation.observationType || '', observation.text, timestamp, observation.source || '');
+                    const timestamp = observation.timestamp || new Date().toISOString();
+                    const propertiesJson = observation.properties ? JSON.stringify(observation.properties) : null;
+                    if (!existingMap.has(obsKey)) {
+                        // New observation - insert
+                        const obsResult = insertObservation.run(entity.id, observation.observationType || '', observation.text, timestamp, observation.source || '', propertiesJson);
                         addedObservations.push({
                             id: String(obsResult.lastInsertRowid),
                             text: observation.text,
                             ...(observation.observationType && { observationType: observation.observationType }),
                             timestamp,
                             ...(observation.source && { source: observation.source }),
+                            ...(observation.properties && { properties: observation.properties }),
                         });
-                        existingSet.add(obsKey);
+                        existingMap.set(obsKey, Number(obsResult.lastInsertRowid));
                     }
+                    else if (override) {
+                        // Existing observation with override - update
+                        updateObservation.run(observation.text, timestamp, propertiesJson, entity.id, observation.observationType || '', observation.source || '');
+                        const existingId = existingMap.get(obsKey);
+                        addedObservations.push({
+                            id: String(existingId),
+                            text: observation.text,
+                            ...(observation.observationType && { observationType: observation.observationType }),
+                            timestamp,
+                            ...(observation.source && { source: observation.source }),
+                            ...(observation.properties && { properties: observation.properties }),
+                        });
+                    }
+                    // If exists and no override, skip silently
                 }
                 results.push({
                     entityId: String(entity.id),
@@ -478,10 +608,23 @@ export class SQLiteStorage {
          ORDER BY score
          LIMIT ?`)
             .all(ftsQuery, resultLimit);
+        // Get entity properties for the matched entities
+        const entityPropsMap = new Map();
+        if (entityRows.length > 0) {
+            const entityIds = entityRows.map(e => e.id);
+            const placeholders = Array(entityIds.length).fill('?').join(',');
+            const propsRows = this.db
+                .prepare(`SELECT id, properties FROM entities WHERE id IN (${placeholders})`)
+                .all(...entityIds);
+            for (const row of propsRows) {
+                entityPropsMap.set(row.id, row.properties);
+            }
+        }
         for (const row of entityRows) {
             const observations = this.db
-                .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
+                .prepare('SELECT id, observation_type, content, timestamp, source, properties FROM observations WHERE entity_id = ?')
                 .all(row.id);
+            const entityProps = entityPropsMap.get(row.id);
             entities.push({
                 id: String(row.id),
                 name: row.name,
@@ -492,7 +635,9 @@ export class SQLiteStorage {
                     ...(o.observation_type && { observationType: o.observation_type }),
                     ...(o.timestamp && { timestamp: o.timestamp }),
                     ...(o.source && { source: o.source }),
+                    ...(o.properties && { properties: JSON.parse(o.properties) }),
                 })),
+                ...(entityProps && { properties: JSON.parse(entityProps) }),
             });
         }
         if (entities.length > 0) {
@@ -500,7 +645,7 @@ export class SQLiteStorage {
             const placeholders = Array(entities.length).fill('?').join(',');
             const entityIds = entities.map(e => e.id);
             const relationRows = this.db
-                .prepare(`SELECT id, from_entity_id, to_entity_id, relation_type
+                .prepare(`SELECT id, from_entity_id, to_entity_id, relation_type, properties
            FROM relations
            WHERE from_entity_id IN (${placeholders}) OR to_entity_id IN (${placeholders})`)
                 .all(...entityIds, ...entityIds);
@@ -516,6 +661,7 @@ export class SQLiteStorage {
                     fromType: fromEntity?.entityType,
                     to: toEntity?.name,
                     toType: toEntity?.entityType,
+                    ...(row.properties && { properties: JSON.parse(row.properties) }),
                 });
             }
         }
@@ -556,10 +702,13 @@ export class SQLiteStorage {
                 resolvedEntities.push(entity);
             }
         }
-        // Fetch full entity data with observations
+        // Fetch full entity data with observations and properties
         for (const entity of resolvedEntities) {
+            const entityProps = this.db
+                .prepare('SELECT properties FROM entities WHERE id = ?')
+                .get(entity.id);
             const observations = this.db
-                .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')
+                .prepare('SELECT id, observation_type, content, timestamp, source, properties FROM observations WHERE entity_id = ?')
                 .all(entity.id);
             entities.push({
                 id: String(entity.id),
@@ -571,7 +720,9 @@ export class SQLiteStorage {
                     ...(o.observation_type && { observationType: o.observation_type }),
                     ...(o.timestamp && { timestamp: o.timestamp }),
                     ...(o.source && { source: o.source }),
+                    ...(o.properties && { properties: JSON.parse(o.properties) }),
                 })),
+                ...(entityProps?.properties && { properties: JSON.parse(entityProps.properties) }),
             });
         }
         const entityIdSet = new Set(entities.map(e => e.id));
@@ -579,7 +730,7 @@ export class SQLiteStorage {
         if (entities.length > 0) {
             // Get all relations between the requested entities
             const allRelationRows = this.db
-                .prepare('SELECT id, from_entity_id, to_entity_id, relation_type FROM relations')
+                .prepare('SELECT id, from_entity_id, to_entity_id, relation_type, properties FROM relations')
                 .all();
             for (const row of allRelationRows) {
                 if (entityIdSet.has(String(row.from_entity_id)) && entityIdSet.has(String(row.to_entity_id))) {
@@ -594,6 +745,7 @@ export class SQLiteStorage {
                         fromType: fromEntity?.entityType,
                         to: toEntity?.name,
                         toType: toEntity?.entityType,
+                        ...(row.properties && { properties: JSON.parse(row.properties) }),
                     });
                 }
             }

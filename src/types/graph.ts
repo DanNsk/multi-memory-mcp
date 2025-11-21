@@ -28,6 +28,7 @@ export interface Observation {
   text: string;
   timestamp?: string;
   source?: string;
+  properties?: Record<string, unknown>;
 }
 
 export interface Entity {
@@ -35,6 +36,7 @@ export interface Entity {
   name: string;
   entityType: string;
   observations: Observation[];
+  properties?: Record<string, unknown>;
 }
 
 export interface Relation {
@@ -47,6 +49,7 @@ export interface Relation {
   fromType?: string;
   to?: string;
   toType?: string;
+  properties?: Record<string, unknown>;
 }
 
 export interface KnowledgeGraph {
@@ -97,6 +100,7 @@ export interface RelationInput {
   from: EntityEndpoint;
   to: EntityEndpoint;
   relationType: string;
+  properties?: Record<string, unknown>;
 }
 
 // Result type for observation additions
@@ -109,9 +113,9 @@ export interface ObservationResult {
 
 export interface StorageAdapter {
   loadGraph(): Promise<KnowledgeGraph>;
-  createEntities(entities: Entity[]): Promise<Entity[]>;
-  createRelations(relations: RelationInput[]): Promise<Relation[]>;
-  addObservations(observations: { entityId?: string; entityName?: string; entityType?: string; contents: Observation[] }[]): Promise<ObservationResult[]>;
+  createEntities(entities: Entity[], override?: boolean): Promise<Entity[]>;
+  createRelations(relations: RelationInput[], override?: boolean): Promise<Relation[]>;
+  addObservations(observations: { entityId?: string; entityName?: string; entityType?: string; contents: Observation[] }[], override?: boolean): Promise<ObservationResult[]>;
   deleteEntities(entities: EntityReference[]): Promise<void>;
   deleteObservations(deletions: ObservationIdentifier[]): Promise<void>;
   deleteRelations(relations: RelationIdentifier[]): Promise<void>;
