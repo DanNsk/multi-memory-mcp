@@ -578,7 +578,7 @@ export class SQLiteStorage implements StorageAdapter {
     transaction(relations);
   }
 
-  async searchNodes(query: string): Promise<KnowledgeGraph> {
+  async searchNodes(query: string, limit?: number): Promise<KnowledgeGraph> {
     const entities: Entity[] = [];
     const relations: Relation[] = [];
 
@@ -591,6 +591,8 @@ export class SQLiteStorage implements StorageAdapter {
       return { entities: [], relations: [] };
     }
 
+    const resultLimit = limit ?? 50;
+
     const entityRows = this.db
       .prepare(
         `SELECT DISTINCT fm.entity_id as id, e.name, e.entity_type,
@@ -600,9 +602,10 @@ export class SQLiteStorage implements StorageAdapter {
            AND fts_content.rowid = fm.fts_rowid
            AND fm.entity_id = e.id
          GROUP BY fm.entity_id
-         ORDER BY score`
+         ORDER BY score
+         LIMIT ?`
       )
-      .all(ftsQuery) as Array<{
+      .all(ftsQuery, resultLimit) as Array<{
       id: number;
       name: string;
       entity_type: string;

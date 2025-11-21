@@ -456,7 +456,7 @@ export class SQLiteStorage {
         });
         transaction(relations);
     }
-    async searchNodes(query) {
+    async searchNodes(query, limit) {
         const entities = [];
         const relations = [];
         // Use FTS5 for full-text search with BM25 ranking
@@ -466,6 +466,7 @@ export class SQLiteStorage {
         if (!ftsQuery) {
             return { entities: [], relations: [] };
         }
+        const resultLimit = limit ?? 50;
         const entityRows = this.db
             .prepare(`SELECT DISTINCT fm.entity_id as id, e.name, e.entity_type,
                 MIN(fts_content.rank) as score
@@ -474,8 +475,9 @@ export class SQLiteStorage {
            AND fts_content.rowid = fm.fts_rowid
            AND fm.entity_id = e.id
          GROUP BY fm.entity_id
-         ORDER BY score`)
-            .all(ftsQuery);
+         ORDER BY score
+         LIMIT ?`)
+            .all(ftsQuery, resultLimit);
         for (const row of entityRows) {
             const observations = this.db
                 .prepare('SELECT id, observation_type, content, timestamp, source FROM observations WHERE entity_id = ?')

@@ -115,7 +115,7 @@ export interface StorageAdapter {
   deleteEntities(entities: EntityReference[]): Promise<void>;
   deleteObservations(deletions: ObservationIdentifier[]): Promise<void>;
   deleteRelations(relations: RelationIdentifier[]): Promise<void>;
-  searchNodes(query: string): Promise<KnowledgeGraph>;
+  searchNodes(query: string, limit?: number): Promise<KnowledgeGraph>;
   openNodes(entities: EntityReference[]): Promise<KnowledgeGraph>;
   close(): void;
 }

@@ -63,10 +63,10 @@ export class KnowledgeGraphManager {
         const storage = await this.categoryManager.getStorageAdapter(cat);
         return storage.loadGraph();
     }
-    async searchNodes(query, category) {
+    async searchNodes(query, category, limit) {
         const cat = category || this.defaultCategory;
         const storage = await this.categoryManager.getStorageAdapter(cat);
-        return storage.searchNodes(query);
+        return storage.searchNodes(query, limit);
     }
     async openNodes(entities, category) {
         const cat = category || this.defaultCategory;

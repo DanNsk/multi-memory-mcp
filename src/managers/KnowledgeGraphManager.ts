@@ -89,10 +89,10 @@ export class KnowledgeGraphManager {
     return storage.loadGraph();
   }
 
-  async searchNodes(query: string, category?: string): Promise<KnowledgeGraph> {
+  async searchNodes(query: string, category?: string, limit?: number): Promise<KnowledgeGraph> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
-    return storage.searchNodes(query);
+    return storage.searchNodes(query, limit);
   }
 
   async openNodes(entities: EntityReference[], category?: string): Promise<KnowledgeGraph> {

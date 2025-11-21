@@ -305,6 +305,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Memory category. Defaults to 'default'",
             },
             query: { type: "string", description: "FTS5 search query. Examples: 'authentication', 'user AND auth', '\"user authentication\"', 'auth*', 'user OR admin'" },
+            limit: { type: "number", description: "Maximum number of results to return. Defaults to 50" },
           },
           required: ["query"],
           additionalProperties: false,
@@ -499,7 +500,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: serialize(
               await knowledgeGraphManager.searchNodes(
                 args?.query as string,
-                args?.category as string | undefined
+                args?.category as string | undefined,
+                args?.limit as number | undefined
               ),
               SERIALIZATION_FORMAT
             )
