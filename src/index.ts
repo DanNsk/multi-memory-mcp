@@ -60,13 +60,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "create_entities",
-        description: "Create multiple new entities in the knowledge graph. Returns entities with their assigned IDs. Constraints: entities unique by (name, entityType); observations unique by (entity, observationType, source).",
+        description: "Create multiple new entities in the knowledge graph. Returns entities with their assigned IDs. Constraints: entities unique by (name, entityType); observations unique by (entity, observationType, source). Use override=true to replace existing entities.",
         inputSchema: {
           type: "object",
           properties: {
             category: {
               type: "string",
               description: "Memory category (e.g., 'work', 'personal', 'project-alpha'). Defaults to 'default'",
+            },
+            override: {
+              type: "boolean",
+              description: "If true, replace existing entities instead of skipping them. Defaults to false",
             },
             entities: {
               type: "array",
@@ -75,6 +79,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 properties: {
                   name: { type: "string", description: "The name of the entity" },
                   entityType: { type: "string", description: "The type of the entity (defaults to empty string)" },
+                  properties: {
+                    type: "object",
+                    description: "Custom JSON properties for the entity (e.g., {\"filePath\": \"/path/to/file\", \"tags\": [\"important\"]})"
+                  },
                   observations: {
                     type: "array",
                     items: {
@@ -83,7 +91,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         observationType: { type: "string", description: "Type/category of observation (optional, defaults to empty string)" },
                         text: { type: "string", description: "The observation text content" },
                         timestamp: { type: "string", description: "ISO 8601 timestamp (optional, defaults to current time)" },
-                        source: { type: "string", description: "Source of the observation (optional, defaults to empty string)" }
+                        source: { type: "string", description: "Source of the observation (optional, defaults to empty string)" },
+                        properties: {
+                          type: "object",
+                          description: "Custom JSON properties for the observation (e.g., {\"lineNumber\": 42, \"confidence\": 0.95})"
+                        }
                       },
                       required: ["text"],
                       additionalProperties: false
@@ -102,13 +114,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "create_relations",
-        description: "Create multiple new relations between entities. Each endpoint (from/to) can be specified by id OR by name/type. Returns relations with their assigned IDs.",
+        description: "Create multiple new relations between entities. Each endpoint (from/to) can be specified by id OR by name/type. Returns relations with their assigned IDs. Use override=true to update existing relations.",
         inputSchema: {
           type: "object",
           properties: {
             category: {
               type: "string",
               description: "Memory category. Defaults to 'default'",
+            },
+            override: {
+              type: "boolean",
+              description: "If true, update existing relations instead of skipping them. Defaults to false",
             },
             relations: {
               type: "array",
@@ -136,6 +152,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     additionalProperties: false
                   },
                   relationType: { type: "string", description: "The type of the relation" },
+                  properties: {
+                    type: "object",
+                    description: "Custom JSON properties for the relation (e.g., {\"weight\": 0.8, \"since\": \"2024-01-01\"})"
+                  },
                 },
                 required: ["from", "to", "relationType"],
                 additionalProperties: false,
@@ -148,13 +168,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "add_observations",
-        description: "Add new observations to existing entities. Entity can be specified by entityId OR by entityName/entityType. Returns observation IDs. Constraint: observations unique by (entity, observationType, source).",
+        description: "Add new observations to existing entities. Entity can be specified by entityId OR by entityName/entityType. Returns observation IDs. Constraint: observations unique by (entity, observationType, source). Use override=true to update existing observations.",
         inputSchema: {
           type: "object",
           properties: {
             category: {
               type: "string",
               description: "Memory category. Defaults to 'default'",
+            },
+            override: {
+              type: "boolean",
+              description: "If true, update existing observations instead of skipping them. Defaults to false",
             },
             observations: {
               type: "array",
@@ -172,7 +196,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         observationType: { type: "string", description: "Type/category of observation (optional, defaults to empty string)" },
                         text: { type: "string", description: "The observation text content" },
                         timestamp: { type: "string", description: "ISO 8601 timestamp (optional)" },
-                        source: { type: "string", description: "Source of the observation (optional, defaults to empty string)" }
+                        source: { type: "string", description: "Source of the observation (optional, defaults to empty string)" },
+                        properties: {
+                          type: "object",
+                          description: "Custom JSON properties for the observation (e.g., {\"lineNumber\": 42, \"confidence\": 0.95})"
+                        }
                       },
                       required: ["text"],
                       additionalProperties: false
@@ -383,7 +411,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: serialize(
               await knowledgeGraphManager.createEntities(
                 entitiesWithDefaults,
-                args?.category as string | undefined
+                args?.category as string | undefined,
+                args?.override as boolean | undefined
               ),
               SERIALIZATION_FORMAT
             )
@@ -403,7 +432,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             name: r.to?.name,
             type: r.to?.type ?? ''
           },
-          relationType: r.relationType
+          relationType: r.relationType,
+          properties: r.properties
         })) as RelationInput[];
         return {
           content: [{
@@ -411,7 +441,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: serialize(
               await knowledgeGraphManager.createRelations(
                 relationsInput,
-                args?.category as string | undefined
+                args?.category as string | undefined,
+                args?.override as boolean | undefined
               ),
               SERIALIZATION_FORMAT
             )
@@ -431,7 +462,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: serialize(
               await knowledgeGraphManager.addObservations(
                 observationsInput,
-                args?.category as string | undefined
+                args?.category as string | undefined,
+                args?.override as boolean | undefined
               ),
               SERIALIZATION_FORMAT
             )

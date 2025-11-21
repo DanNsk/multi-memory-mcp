@@ -41,25 +41,26 @@ export class KnowledgeGraphManager {
     private defaultCategory: string = 'default'
   ) {}
 
-  async createEntities(entities: Entity[], category?: string): Promise<Entity[]> {
+  async createEntities(entities: Entity[], category?: string, override?: boolean): Promise<Entity[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
-    return storage.createEntities(entities);
+    return storage.createEntities(entities, override);
   }
 
-  async createRelations(relations: RelationInput[], category?: string): Promise<Relation[]> {
+  async createRelations(relations: RelationInput[], category?: string, override?: boolean): Promise<Relation[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
-    return storage.createRelations(relations);
+    return storage.createRelations(relations, override);
   }
 
   async addObservations(
     observations: { entityId?: string; entityName?: string; entityType?: string; contents: Observation[] }[],
-    category?: string
+    category?: string,
+    override?: boolean
   ): Promise<ObservationResult[]> {
     const cat = category || this.defaultCategory;
     const storage = await this.categoryManager.getStorageAdapter(cat);
-    return storage.addObservations(observations);
+    return storage.addObservations(observations, override);
   }
 
   async deleteEntities(entities: EntityReference[], category?: string): Promise<void> {
